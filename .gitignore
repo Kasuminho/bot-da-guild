@@ -1,0 +1,33 @@
+# Byte-compiled / Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+venv/
+.venv/
+.env.*
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+bot.log
+
+# Virtualenvs / build
+dist/
+build/
+*.egg-info/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+database.db
+config.py
+bot-discord.zip
+assets/
+images/
