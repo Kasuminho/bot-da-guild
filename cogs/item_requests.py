@@ -119,7 +119,6 @@ class ItemRequests(commands.Cog):
                         category=CATEGORY_LABELS[item_category][lang],
                         items=items_list,
                     ),
-                    ephemeral=True,
                 )
                 return
 
