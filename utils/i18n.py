@@ -28,6 +28,32 @@ TEXT = {
         "pt": "✅ Atualização registrada. Contador de inatividade resetado.",
         "en": "✅ Update registered. Inactivity counter reset."
     },
+    "request_category_limit": {
+        "pt": (
+            "❌ {player} já possui request ativo na categoria **{category}**: {items}.\n"
+            "Remova o antigo antes de criar outro."
+        ),
+        "en": (
+            "❌ {player} already has an active request in the **{category}** category: {items}.\n"
+            "Remove the old one before creating another."
+        ),
+    },
+    "request_delete_thread_only": {
+        "pt": "❌ Use este comando dentro da thread do request.",
+        "en": "❌ Use this command inside the request thread."
+    },
+    "request_delete_not_linked": {
+        "pt": "❌ Esta thread não está vinculada a nenhum request.",
+        "en": "❌ This thread is not linked to any request."
+    },
+    "request_delete_ok": {
+        "pt": "🗑️ Request de **{item}** removido com sucesso.",
+        "en": "🗑️ Request for **{item}** removed successfully."
+    },
+    "request_delete_thread_msg": {
+        "pt": "🗑️ Este request foi removido do ranking.",
+        "en": "🗑️ This request was removed from the rank."
+    },
 
     "request_not_found": {
         "pt": "❌ Nenhum request ativo encontrado nesta thread.",
