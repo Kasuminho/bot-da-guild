@@ -221,6 +221,19 @@ def get_all_players():
     return cursor.fetchall()
 
 
+def get_player_language(discord_id: int):
+    cursor.execute(
+        """
+        SELECT language
+        FROM players
+        WHERE discord_id = ?
+        """,
+        (discord_id,),
+    )
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
 def add_reminder(tipo, nome, channel_id, timestamp):
     cursor.execute(
         """
@@ -884,6 +897,18 @@ def add_item_request(discord_id, player_name, item_name, quantity, thread_id, th
     conn.commit()
 
 
+def get_item_requests_by_player(discord_id: int):
+    cursor.execute(
+        """
+        SELECT item_name
+        FROM item_requests
+        WHERE discord_id = ?
+        """,
+        (discord_id,),
+    )
+    return [row[0] for row in cursor.fetchall()]
+
+
 
 def update_item_request_by_thread(thread_id):
     now = int(time.time())
@@ -1073,7 +1098,7 @@ def get_item_request_by_thread(thread_id):
 def get_request_by_thread(thread_id: int, item_name: str):
     cursor.execute(
         """
-        SELECT id, item_name, rank_position
+        SELECT id, discord_id, item_name, rank_position
         FROM item_requests
         WHERE thread_id = ? and item_name = ?
         """,

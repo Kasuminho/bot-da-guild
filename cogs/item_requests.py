@@ -6,7 +6,12 @@ from discord.ext import commands
 from config import STAFF_ROLE_ID
 import db
 from utils.i18n import TEXT
-from utils.fixed_items import FIXED_ITEMS, ITEM_CHOICES
+from utils.fixed_items import (
+    CATEGORY_LABELS,
+    FIXED_ITEMS,
+    ITEM_CATEGORIES,
+    ITEM_CHOICES,
+)
 
 lang = "pt"
 
@@ -26,6 +31,15 @@ class ItemRequests(commands.Cog):
     def ensure_thread(self, interaction: discord.Interaction):
         if not isinstance(interaction.channel, discord.Thread):
             raise app_commands.AppCommandError(TEXT["thread_only"][lang])
+
+    def get_player_language(self, discord_id: int) -> str:
+        player_language = db.get_player_language(discord_id)
+        if not player_language:
+            return "pt"
+        normalized = player_language.strip().lower()
+        if normalized == "en":
+            return "en"
+        return "pt"
 
     def normalize_last_update(self, request_id: int, last_update: int) -> int:
         """
@@ -74,6 +88,7 @@ class ItemRequests(commands.Cog):
         quantity: int,
     ):
         self.ensure_thread(interaction)
+        lang = self.get_player_language(player.id)
 
         if quantity <= 0:
             await interaction.response.send_message(
@@ -83,6 +98,30 @@ class ItemRequests(commands.Cog):
             return
 
         item_key = item.value
+        item_category = ITEM_CATEGORIES[item_key]
+
+        existing_requests = db.get_item_requests_by_player(player.id)
+        has_same_item = item_key in existing_requests
+
+        if not has_same_item:
+            same_category = [
+                existing_item
+                for existing_item in existing_requests
+                if ITEM_CATEGORIES.get(existing_item) == item_category
+            ]
+            if same_category:
+                items_list = ", ".join(
+                    f"**{FIXED_ITEMS[item][lang]}**" for item in same_category
+                )
+                await interaction.response.send_message(
+                    TEXT["request_category_limit"][lang].format(
+                        player=player.mention,
+                        category=CATEGORY_LABELS[item_category][lang],
+                        items=items_list,
+                    ),
+                    ephemeral=True,
+                )
+                return
 
         db.add_item_request(
             discord_id=player.id,
@@ -113,6 +152,12 @@ class ItemRequests(commands.Cog):
     async def request_update(self, interaction: discord.Interaction):
         self.ensure_thread(interaction)
 
+        request = db.get_item_request_by_thread(interaction.channel.id)
+        lang = (
+            self.get_player_language(request[1])
+            if request
+            else "pt"
+        )
         ok = db.update_item_request_by_thread(interaction.channel.id)
 
         if not ok:
@@ -147,6 +192,12 @@ class ItemRequests(commands.Cog):
         quantity: int
     ):
         self.ensure_thread(interaction)
+        request = db.get_item_request_by_thread(interaction.channel.id)
+        lang = (
+            self.get_player_language(request[1])
+            if request
+            else "pt"
+        )
 
         if quantity <= 0:
             await interaction.response.send_message(
@@ -241,13 +292,14 @@ class ItemRequests(commands.Cog):
 
         (
             request_id,
-            _discord_id,
+            discord_id,
             player_name,
             item_key,
             rank_position,
             _thread_id,
             last_update,
         ) = req
+        lang = self.get_player_language(discord_id)
 
         # 🔥 NORMALIZA TIMESTAMP AQUI
         last_update = self.normalize_last_update(request_id, last_update)
@@ -281,35 +333,36 @@ class ItemRequests(commands.Cog):
     ):
         thread = interaction.channel
         item_key = item.value
+        default_lang = "pt"
 
         if not isinstance(thread, discord.Thread):
             await interaction.response.send_message(
-                "❌ Use this command inside the request thread.",
+                TEXT["request_delete_thread_only"][default_lang],
                 ephemeral=True
             )
             return
 
         req = db.get_request_by_thread(thread.id, item_key)
+        request_lang = self.get_player_language(req[1]) if req else default_lang
 
         if not req:
             await interaction.response.send_message(
-                "❌ This thread is not linked to any request.",
+                TEXT["request_delete_not_linked"][request_lang],
                 ephemeral=True
             )
             return
-
-        request_id, item_name, rank = req
+        request_id, _discord_id, item_name, _rank = req
 
         db.delete_request(request_id)
         db.reorder_item_ranks(item_name)
 
         await interaction.response.send_message(
-            f"🗑️ Request for **{item_name}** removed successfully."
+            TEXT["request_delete_ok"][request_lang].format(item=item_name)
         )
 
         try:
             await thread.send(
-                f"🗑️ This request was removed from the rank."
+                TEXT["request_delete_thread_msg"][request_lang]
             )
         except:
             pass
