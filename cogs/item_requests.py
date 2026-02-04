@@ -27,6 +27,30 @@ class ItemRequests(commands.Cog):
         if not isinstance(interaction.channel, discord.Thread):
             raise app_commands.AppCommandError(TEXT["thread_only"][lang])
 
+    def normalize_last_update(self, request_id: int, last_update: int) -> int:
+        """
+        Corrige timestamps inválidos:
+        - ms → s
+        - timestamp no futuro
+        """
+        now = int(time.time())
+        fixed = False
+
+        # veio em milissegundos
+        if last_update > 10_000_000_000:
+            last_update = int(last_update / 1000)
+            fixed = True
+
+        # veio do futuro
+        if last_update > now:
+            last_update = now
+            fixed = True
+
+        if fixed:
+            db.fix_last_update(request_id, last_update)
+
+        return last_update
+
     # ==========================================================
     # CRIAR REQUEST
     # ==========================================================
@@ -130,8 +154,7 @@ class ItemRequests(commands.Cog):
                 ephemeral=True
             )
             return
-        
-        
+
         item_key = item.value
 
         ok = db.deliver_item_by_thread(
@@ -217,7 +240,7 @@ class ItemRequests(commands.Cog):
             return
 
         (
-            _,
+            request_id,
             _discord_id,
             player_name,
             item_key,
@@ -225,6 +248,9 @@ class ItemRequests(commands.Cog):
             _thread_id,
             last_update,
         ) = req
+
+        # 🔥 NORMALIZA TIMESTAMP AQUI
+        last_update = self.normalize_last_update(request_id, last_update)
 
         days_idle = int((time.time() - last_update) / 86400)
 
@@ -237,11 +263,11 @@ class ItemRequests(commands.Cog):
                 link=interaction.channel.jump_url
             )
         )
-        
+
     # ==========================================================
     # DELETE
     # ==========================================================
-    
+
     @app_commands.command(
         name="request_delete",
         description="Remove this item request"
@@ -249,7 +275,7 @@ class ItemRequests(commands.Cog):
     @app_commands.checks.has_role(STAFF_ROLE_ID)
     @app_commands.choices(item=ITEM_CHOICES)
     async def request_delete(
-        self, 
+        self,
         interaction: discord.Interaction,
         item: app_commands.Choice[str]
     ):
@@ -263,7 +289,7 @@ class ItemRequests(commands.Cog):
             )
             return
 
-        req = db.get_request_by_thread(thread.id,item_key,)
+        req = db.get_request_by_thread(thread.id, item_key)
 
         if not req:
             await interaction.response.send_message(
@@ -287,7 +313,6 @@ class ItemRequests(commands.Cog):
             )
         except:
             pass
-
 
 
 async def setup(bot: commands.Bot):

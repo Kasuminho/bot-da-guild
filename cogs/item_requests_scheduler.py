@@ -7,11 +7,11 @@ from config import (
 )
 
 from utils.i18n import TEXT
-
 import db
 
-lang = "pt" 
+lang = "pt"
 ITEM_IMAGES_DIR = "images/itens"
+
 
 class ItemRequestsScheduler(commands.Cog):
     """
@@ -27,27 +27,26 @@ class ItemRequestsScheduler(commands.Cog):
     def cog_unload(self):
         self.daily_check.cancel()
         self.daily_loop.cancel()
-        
+
     async def clear_summary_channel(self, channel: discord.TextChannel):
         await channel.purge(
             limit=100,
             check=lambda m: m.author == self.bot.user,
             bulk=True
         )
-        
+
     async def send_item_summary(self):
         channel = self.bot.get_channel(ITEM_REQUEST_SUMMARY_CHANNEL_ID)
         if not channel:
             return
 
-        await self.clear_summary_channel(channel)  # 🔥 LIMPA TUDO ANTES
+        await self.clear_summary_channel(channel)
 
         rows = db.get_daily_item_summary()
         if not rows:
             return
 
         embeds = {}
-        
         files = {}
 
         for item_name, rank, player, remaining, thread_id in rows:
@@ -56,16 +55,16 @@ class ItemRequestsScheduler(commands.Cog):
                     title=TEXT["rank_header"][lang].format(item=item_name),
                     color=discord.Color.blurple()
                 )
-                
+
                 image_path = os.path.join(ITEM_IMAGES_DIR, f"{item_name}.png")
-                
+
                 if os.path.isfile(image_path):
                     file = discord.File(image_path, filename=f"{item_name}.png")
                     embed.set_thumbnail(url=f"attachment://{item_name}.png")
                     files[item_name] = file
                 else:
                     files[item_name] = None
-                
+
                 embeds[item_name] = embed
 
             thread = self.bot.get_channel(thread_id)
@@ -87,16 +86,13 @@ class ItemRequestsScheduler(commands.Cog):
             else:
                 await channel.send(embed=embed)
 
-
-
     # ==========================================================
-    # TASK DIÁRIA
+    # TASK DIÁRIA – RANK / WARN
     # ==========================================================
-    
+
     @tasks.loop(minutes=60)
     async def daily_loop(self):
         await self.bot.wait_until_ready()
-        
         await self.send_item_summary()
 
     @tasks.loop(hours=24)
@@ -119,18 +115,31 @@ class ItemRequestsScheduler(commands.Cog):
                 warned_3d,
                 warned_4d,
             ) = req
-            
-            if item_name == "creature of gaiety":
+
+            if item_name in ("creature of gaiety", "elder dragon isteria"):
                 continue
             
-            if item_name == "elder dragon isteria":
+            if rank_position != 1:
+                db.fix_last_update(request_id, last_update)
                 continue
+
+            # ============================
+            # 🔥 FAILSAFE TIMESTAMP
+            # ============================
+
+            # Se veio em ms
+            if last_update > 10_000_000_000:
+                last_update = int(last_update / 1000)
+                db.fix_last_update(request_id, last_update)
+
+            # Se veio do futuro
+            if last_update > now:
+                last_update = int(now)
+                db.fix_last_update(request_id, last_update)
 
             days_idle = int((now - last_update) / 86400)
 
             thread = self.bot.get_channel(thread_id)
-
-            # Thread apagada ou inacessível
             if not thread:
                 continue
 
@@ -151,7 +160,6 @@ class ItemRequestsScheduler(commands.Cog):
                 await thread.send(
                     TEXT["idle_4d"][lang].format(player=discord_id, item=item_name)
                 )
-
                 db.mark_request_warned(request_id, "warned_4d")
                 continue
 
@@ -162,7 +170,6 @@ class ItemRequestsScheduler(commands.Cog):
                 await thread.send(
                     TEXT["rank_down"][lang].format(player=discord_id, item=item_name)
                 )
-
                 db.drop_request_rank(request_id)
 
     # ==========================================================

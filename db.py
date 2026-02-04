@@ -838,51 +838,36 @@ def get_rotation_history(discord_id: int, start_day: int, end_day: int):
 
 #Funções do rankeamento
 
-def add_item_request(
-    discord_id,
-    player_name,
-    item_name,
-    quantity,
-    thread_id,
-    thread_channel_id,
-):
+def add_item_request(discord_id, player_name, item_name, quantity, thread_id, thread_channel_id):
     now = int(time.time())
 
     cursor.execute(
-        """
-        SELECT id, total_quantity, remaining_quantity
-        FROM item_requests
-        WHERE discord_id = ? AND item_name = ?
-        """,
+        "SELECT id FROM item_requests WHERE discord_id = ? AND item_name = ?",
         (discord_id, item_name),
     )
     existing = cursor.fetchone()
 
     if existing:
-        req_id, total, remaining = existing
         cursor.execute(
             """
             UPDATE item_requests
-            SET
-                total_quantity = ?,
+            SET total_quantity = ?,
                 remaining_quantity = ?,
-                last_update = ?
+                last_update = ?,
+                warned_3d = 0,
+                warned_4d = 0
             WHERE id = ?
             """,
-            (quantity, quantity, now, req_id),
+            (quantity, quantity, now, existing[0]),
         )
         conn.commit()
         return
 
     cursor.execute(
-        """
-        SELECT COALESCE(MAX(rank_position), 0)
-        FROM item_requests
-        WHERE item_name = ?
-        """,
+        "SELECT COALESCE(MAX(rank_position), 0) FROM item_requests WHERE item_name = ?",
         (item_name,),
     )
-    last_rank = cursor.fetchone()[0]
+    rank = cursor.fetchone()[0] + 1
 
     cursor.execute(
         """
@@ -893,38 +878,23 @@ def add_item_request(
             created_at, last_update
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (
-            discord_id,
-            player_name,
-            item_name,
-            quantity,
-            quantity,
-            last_rank + 1,
-            thread_id,
-            thread_channel_id,
-            now,
-            now,
-        ),
+        (discord_id, player_name, item_name, quantity, quantity,
+         rank, thread_id, thread_channel_id, now, now),
     )
-
     conn.commit()
 
 
 
 def update_item_request_by_thread(thread_id):
     now = int(time.time())
-
     cursor.execute(
         """
         UPDATE item_requests
-        SET last_update = ?,
-            warned_3d = 0,
-            warned_4d = 0
+        SET last_update = ?, warned_3d = 0, warned_4d = 0
         WHERE thread_id = ?
         """,
         (now, thread_id),
     )
-
     conn.commit()
     return cursor.rowcount > 0
 
@@ -1023,11 +993,7 @@ def drop_request_rank(request_id):
     now = int(time.time())
 
     cursor.execute(
-        """
-        SELECT item_name, rank_position
-        FROM item_requests
-        WHERE id = ?
-        """,
+        "SELECT item_name, rank_position FROM item_requests WHERE id = ?",
         (request_id,),
     )
     row = cursor.fetchone()
@@ -1037,25 +1003,26 @@ def drop_request_rank(request_id):
     item_name, rank = row
 
     cursor.execute(
-        """
-        SELECT id
-        FROM item_requests
-        WHERE item_name = ?
-          AND rank_position = ?
-        """,
+        "SELECT id FROM item_requests WHERE item_name = ? AND rank_position = ?",
         (item_name, rank + 1),
     )
     below = cursor.fetchone()
-
     if not below:
-        return  # já é último
+        return
 
     below_id = below[0]
 
+    # QUEM SOBE
     cursor.execute(
-        "UPDATE item_requests SET rank_position = ? WHERE id = ?",
-        (rank, below_id),
+        """
+        UPDATE item_requests
+        SET rank_position = ?, last_update = ?, warned_3d = 0, warned_4d = 0
+        WHERE id = ?
+        """,
+        (rank, now, below_id),
     )
+
+    # QUEM CAI
     cursor.execute(
         """
         UPDATE item_requests
@@ -1140,4 +1107,11 @@ def reorder_item_ranks(item_name: str):
             (index, req_id)
         )
 
+    conn.commit()
+
+def fix_last_update(request_id: int, ts: int):
+    cursor.execute(
+        "UPDATE item_requests SET last_update = ? WHERE id = ?",
+        (ts, request_id)
+    )
     conn.commit()

@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import db
-from config import FORUM_CHANNEL_ID, STAFF_ROLE_ID
+from config import FORUM_CHANNEL_ID, STAFF_ROLE_ID, DELIVERY_LOG_CHANNEL_ID
 
 OVERRIDE_IDS = {273600843251712020, 314170587968700417}
 STAFF_CONTACT_ID = 273600843251712020
@@ -141,19 +141,57 @@ class ForumDelivery(commands.Cog):
             )
             return
 
-        files = [await a.to_file() for a in attachments]
+        # =============================
+        # CANAL DE LOG / ENTREGA
+        # =============================
+        delivery_channel = interaction.guild.get_channel(DELIVERY_LOG_CHANNEL_ID)
+        if delivery_channel is None:
+            # fallback: tenta buscar da API
+            try:
+                delivery_channel = await interaction.guild.fetch_channel(DELIVERY_LOG_CHANNEL_ID)
+            except discord.NotFound:
+                delivery_channel = None
 
+        if delivery_channel is None:
+            await interaction.followup.send(
+                "❌ Canal de entrega/log não encontrado. Verifique o DELIVERY_LOG_CHANNEL_ID.",
+                ephemeral=True,
+            )
+            return
+
+        # (opcional) pega link da thread pra referência
+        thread_link = f"https://discord.com/channels/{interaction.guild.id}/{channel.id}"
+
+        # monta anexos
+        files = [await a.to_file() for a in attachments]
         mentions = " ".join(p.mention for p in players)
 
-        await channel.send(
+        # manda no canal novo
+        await delivery_channel.send(
             content=(
                 "📦 **Entrega de Item / Item Delivery**\n\n"
+                f"🧵 **Thread:** {channel.mention}\n"
+                f"🔗 **Link:** {thread_link}\n"
                 f"🎯 **Jogadores / Players:** {mentions}\n"
                 f"🧾 **Item:** {item}\n"
+                f"👤 **Staff:** {interaction.user.mention}\n"
                 f"📎 **Comprovantes:** {len(files)} arquivo(s)"
             ),
             files=files,
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
         )
+
+        # (opcional) deixa recibo na thread também, sem prints
+        await channel.send(
+            content=(
+                "✅ **Entrega registrada.**\n"
+                f"📌 Log enviado em <#{DELIVERY_LOG_CHANNEL_ID}>.\n"
+                f"🎯 Players: {mentions}\n"
+                f"🧾 Item: {item}"
+            ),
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        )
+
 
         # =============================
         # REGISTRO NO BANCO
