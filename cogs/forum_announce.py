@@ -197,6 +197,8 @@ class ItemTypeSelect(Select):
 
     async def callback(self, interaction: discord.Interaction):
         self.flow.item_type = self.values[0]
+        self.flow.item_ids = []
+        self.flow.last_selected_id = None
         self.flow.page = 0
         await self.flow.show_item_page(interaction)
 
@@ -205,17 +207,30 @@ class ItemTypeSelect(Select):
 # SELECT PAGINADO
 # ==========================================================
 class ItemPageSelect(Select):
-    def __init__(self, flow, items):
+    def __init__(self, flow, items, last_selected_id):
         options = [
-            discord.SelectOption(label=f"{pt} / {en}", value=str(item_id))
+            discord.SelectOption(
+                label=f"{pt} / {en}",
+                value=str(item_id),
+                default=item_id == last_selected_id,
+            )
             for item_id, pt, en in items
         ]
-        super().__init__(placeholder="Selecione o item", options=options)
+        super().__init__(
+            placeholder="Selecione um item (um por vez)",
+            options=options,
+            min_values=1,
+            max_values=1,
+        )
         self.flow = flow
+        self.page_items = items
 
     async def callback(self, interaction: discord.Interaction):
-        self.flow.item_id = int(self.values[0])
-        await self.flow.ask_mode(interaction)
+        selected_id = int(self.values[0])
+        if selected_id not in self.flow.item_ids:
+            self.flow.item_ids.append(selected_id)
+        self.flow.last_selected_id = selected_id
+        await self.flow.show_item_page(interaction)
 
 
 class PrevPageButton(Button):
@@ -238,6 +253,21 @@ class NextPageButton(Button):
         await self.flow.show_item_page(interaction)
 
 
+class ConfirmItemsButton(Button):
+    def __init__(self, flow):
+        super().__init__(label="✅ Confirmar itens", style=discord.ButtonStyle.primary)
+        self.flow = flow
+
+    async def callback(self, interaction: discord.Interaction):
+        if not self.flow.item_ids:
+            await interaction.response.send_message(
+                "❌ Selecione ao menos um item.",
+                ephemeral=True,
+            )
+            return
+        await self.flow.ask_mode(interaction)
+
+
 # ==========================================================
 # FLOW PRINCIPAL
 # ==========================================================
@@ -249,7 +279,8 @@ class AnnounceFlow(View):
         self.author_id = interaction.user.id
 
         self.item_type = None
-        self.item_id = None
+        self.item_ids = []
+        self.last_selected_id = None
         self.page = 0
         self.items = []
 
@@ -284,14 +315,35 @@ class AnnounceFlow(View):
         start = self.page * ITEMS_PER_PAGE
         end = start + ITEMS_PER_PAGE
 
-        self.add_item(ItemPageSelect(self, self.items[start:end]))
+        self.add_item(
+            ItemPageSelect(self, self.items[start:end], self.last_selected_id)
+        )
+        self.add_item(ConfirmItemsButton(self))
 
         if self.page > 0:
             self.add_item(PrevPageButton(self))
         if end < len(self.items):
             self.add_item(NextPageButton(self))
 
-        await interaction.response.edit_message(view=self)
+        await interaction.response.edit_message(
+            content=self.build_selection_content(),
+            view=self,
+        )
+
+    def build_selection_content(self):
+        header = "📢 **Fluxo de anúncio iniciado**"
+        if not self.item_type:
+            return header
+        if not self.item_ids:
+            return f"{header}\n\nNenhum item selecionado."
+        item_lookup = {item_id: (pt, en) for item_id, pt, en in self.items}
+        selected_items = []
+        for item_id in self.item_ids:
+            if item_id in item_lookup:
+                pt, en = item_lookup[item_id]
+                selected_items.append(f"- {pt} / {en}")
+        selected_text = "\n".join(selected_items)
+        return f"{header}\n\n**Itens selecionados:**\n{selected_text}"
 
     async def ask_mode(self, interaction):
         self.clear_items()
@@ -304,7 +356,10 @@ class AnnounceFlow(View):
         )
         select.callback = self.on_mode_selected
         self.add_item(select)
-        await interaction.response.edit_message(view=self)
+        await interaction.response.edit_message(
+            content=self.build_selection_content(),
+            view=self,
+        )
 
     async def on_mode_selected(self, interaction):
         self.mode = interaction.data["values"][0]
@@ -317,32 +372,33 @@ class AnnounceFlow(View):
 
     async def finalize(self, timestamp, interaction, tz_name):
         forum = self.guild.get_channel(FORUM_CHANNEL_ID)
-        item = db.get_forum_item(self.item_id)
+        for item_id in self.item_ids:
+            item = db.get_forum_item(item_id)
 
-        post = await forum.create_thread(
-            name=f"📢 Anúncio – {item[3]} / {item[4]}",
-            content=f"<t:{timestamp}:F> `{tz_name}`",
-            files=[discord.File(item[7]), discord.File(item[8])],
-            applied_tags=[discord.Object(id=FORUM_TAG_ID)],
-        )
+            post = await forum.create_thread(
+                name=f"📢 Anúncio – {item[3]} / {item[4]}",
+                content=f"<t:{timestamp}:F> `{tz_name}`",
+                files=[discord.File(item[7]), discord.File(item[8])],
+                applied_tags=[discord.Object(id=FORUM_TAG_ID)],
+            )
 
-        criteria = CRITERIA_TEXTS[(item[1], self.mode)]
-        await post.thread.send(
-            f"<@&{G3X_ROLE_ID}>\n\n"
-            f"🇧🇷 **Português**\n"
-            f"🟣 **Item:** {item[3]}\n"
-            f"📌 **Tipo:** {item[5]}\n"
-            f"🎯 **Categoria:** {self.mode}\n\n"
-            f"{criteria['pt']}\n\n"
-            f"🇺🇸 **English**\n"
-            f"🟣 **Item:** {item[4]}\n"
-            f"📌 **Type:** {item[6]}\n"
-            f"🎯 **Category:** {self.mode}\n\n"
-            f"{criteria['en']}\n\n"
-            f"⏰ <t:{timestamp}:F>"
-        )
+            criteria = CRITERIA_TEXTS[(item[1], self.mode)]
+            await post.thread.send(
+                f"<@&{G3X_ROLE_ID}>\n\n"
+                f"🇧🇷 **Português**\n"
+                f"🟣 **Item:** {item[3]}\n"
+                f"📌 **Tipo:** {item[5]}\n"
+                f"🎯 **Categoria:** {self.mode}\n\n"
+                f"{criteria['pt']}\n\n"
+                f"🇺🇸 **English**\n"
+                f"🟣 **Item:** {item[4]}\n"
+                f"📌 **Type:** {item[6]}\n"
+                f"🎯 **Category:** {self.mode}\n\n"
+                f"{criteria['en']}\n\n"
+                f"⏰ <t:{timestamp}:F>"
+            )
 
-        db.add_forum_post(post.thread.id, timestamp)
+            db.add_forum_post(post.thread.id, timestamp)
 
         await interaction.followup.send(
             "✅ Anúncio criado com sucesso.",
