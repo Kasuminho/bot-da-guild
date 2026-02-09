@@ -15,6 +15,11 @@ from utils.fixed_items import (
 
 lang = "pt"
 
+EXEMPT_FROM_CATEGORY_LIMIT = {
+    "creature of gaiety",
+    "elder dragon isteria",
+}
+
 
 class ItemRequests(commands.Cog):
     """
@@ -98,20 +103,24 @@ class ItemRequests(commands.Cog):
             return
 
         item_key = item.value
-        item_category = ITEM_CATEGORIES[item_key]
+        is_exempt = item_key in EXEMPT_FROM_CATEGORY_LIMIT
 
+        item_category = ITEM_CATEGORIES.get(item_key)  # get pra não explodir se faltar
         existing_requests = db.get_item_requests_by_player(player.id)
         has_same_item = item_key in existing_requests
 
-        if not has_same_item:
+        if not has_same_item and not is_exempt:
             same_category = [
                 existing_item
                 for existing_item in existing_requests
-                if ITEM_CATEGORIES.get(existing_item) == item_category
+                # ignora boss existentes na comparação
+                if existing_item not in EXEMPT_FROM_CATEGORY_LIMIT
+                and ITEM_CATEGORIES.get(existing_item) == item_category
             ]
+
             if same_category:
                 items_list = ", ".join(
-                    f"**{FIXED_ITEMS[item][lang]}**" for item in same_category
+                    f"**{FIXED_ITEMS[it][lang]}**" for it in same_category
                 )
                 await interaction.response.send_message(
                     TEXT["request_category_limit"][lang].format(
