@@ -29,3 +29,10 @@ EXTRAORDINARY_STAFF_CHANNEL_ID = int(
 EXTRAORDINARY_STAFF_WEBHOOK_URL = os.getenv(
     "EXTRAORDINARY_STAFF_WEBHOOK_URL", ""
 )
+
+FORUM_ANNOUNCE_TEST_MODE = os.getenv("FORUM_ANNOUNCE_TEST_MODE", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
