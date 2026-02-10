@@ -2,6 +2,7 @@ import time
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
+import aiohttp
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -14,6 +15,8 @@ from config import (
     G3X_ROLE_ID,
     STAFF_CHANNEL_ID,
     STAFF_ROLE_ID,
+    EXTRAORDINARY_STAFF_CHANNEL_ID,
+    EXTRAORDINARY_STAFF_WEBHOOK_URL,
 )
 
 # ==========================================================
@@ -410,6 +413,131 @@ class AnnounceFlow(View):
 # COG
 # ==========================================================
 class ForumAnnounce(commands.Cog):
+    PARTICIPANT_REACTIONS = [
+        "🇦", "🇧", "🇨", "🇩", "🇪", "🇫", "🇬", "🇭", "🇮", "🇯",
+        "🇰", "🇱", "🇲", "🇳", "🇴", "🇵", "🇶", "🇷", "🇸", "🇹",
+        "🇺", "🇻", "🇼", "🇽", "🇾", "🇿",
+    ]
+
+    def _is_epic_announcement(self, text: str) -> bool:
+        normalized = (text or "").casefold()
+        return (
+            "epic" in normalized
+            or "épic" in normalized
+            or "epico" in normalized
+            or "épico" in normalized
+        )
+
+    def _extract_item_name_from_thread(self, thread_name: str) -> str:
+        if "–" in thread_name:
+            return thread_name.split("–", 1)[1].strip()
+        if "-" in thread_name:
+            return thread_name.split("-", 1)[1].strip()
+        return thread_name
+
+    def _extract_image_url(self, message: discord.Message):
+        if message.attachments:
+            return message.attachments[0].url
+
+        for emb in message.embeds:
+            if emb.image and emb.image.url:
+                return emb.image.url
+            if emb.thumbnail and emb.thumbnail.url:
+                return emb.thumbnail.url
+
+        return None
+
+    async def _collect_participants(self, thread: discord.Thread):
+        participants = []
+        seen = set()
+        first_media_message = None
+
+        async for message in thread.history(limit=500, oldest_first=True):
+            if message.author.bot:
+                continue
+
+            if message.author.id not in seen:
+                seen.add(message.author.id)
+                participants.append(message.author)
+
+            if not first_media_message and self._extract_image_url(message):
+                first_media_message = message
+
+        return participants, first_media_message
+
+    async def _send_to_extraordinary_staff(self, embed: discord.Embed):
+        if EXTRAORDINARY_STAFF_WEBHOOK_URL:
+            async with aiohttp.ClientSession() as session:
+                webhook = discord.Webhook.from_url(
+                    EXTRAORDINARY_STAFF_WEBHOOK_URL,
+                    session=session,
+                )
+                await webhook.send(embed=embed, username="Guild Staff Assistant")
+            return
+
+        if EXTRAORDINARY_STAFF_CHANNEL_ID <= 0:
+            return
+
+        extra_channel = self.bot.get_channel(EXTRAORDINARY_STAFF_CHANNEL_ID)
+        if not extra_channel:
+            extra_channel = await self.bot.fetch_channel(EXTRAORDINARY_STAFF_CHANNEL_ID)
+
+        review_message = await extra_channel.send(embed=embed)
+        return review_message
+
+    async def _send_extraordinary_staff_review(self, thread: discord.Thread):
+        if EXTRAORDINARY_STAFF_CHANNEL_ID <= 0 and not EXTRAORDINARY_STAFF_WEBHOOK_URL:
+            return
+
+        if not self._is_epic_announcement(thread.name):
+            return
+
+        participants, media_message = await self._collect_participants(thread)
+        if not participants:
+            return
+
+        limited_participants = participants[: len(self.PARTICIPANT_REACTIONS)]
+        item_name = self._extract_item_name_from_thread(thread.name)
+
+        lines = []
+        for idx, member in enumerate(limited_participants):
+            lines.append(f"{self.PARTICIPANT_REACTIONS[idx]} {member.display_name} (`{member.id}`)")
+
+        if len(participants) > len(limited_participants):
+            lines.append(
+                f"... e mais {len(participants) - len(limited_participants)} participante(s)"
+            )
+
+        embed = discord.Embed(
+            title="🟣 Votação extraordinária de drop épico",
+            description=(
+                "Anúncio épico encerrado automaticamente.\n"
+                "Reajam no emoji do participante que deve receber este item."
+            ),
+            color=discord.Color.purple(),
+        )
+        embed.add_field(name="🧩 Item", value=item_name, inline=False)
+        embed.add_field(name="🧵 Thread", value=thread.mention, inline=False)
+        embed.add_field(name="🔗 Link", value=thread.jump_url, inline=False)
+        embed.add_field(
+            name=f"👥 Participantes ({len(participants)})",
+            value="\n".join(lines),
+            inline=False,
+        )
+        embed.set_footer(text="Use apenas 1 reação por staff para evitar conflito na decisão.")
+
+        if media_message:
+            image_url = self._extract_image_url(media_message)
+            if image_url:
+                embed.set_image(url=image_url)
+
+        review_message = await self._send_to_extraordinary_staff(embed)
+        if not review_message:
+            return
+
+        for idx in range(len(limited_participants)):
+            await review_message.add_reaction(self.PARTICIPANT_REACTIONS[idx])
+
     def __init__(self, bot):
         self.bot = bot
         self.check_forum_posts.start()
@@ -421,8 +549,18 @@ class ForumAnnounce(commands.Cog):
 
         for post_id, thread_id in expired:
             thread = self.bot.get_channel(thread_id)
+            if not thread:
+                try:
+                    thread = await self.bot.fetch_channel(thread_id)
+                except Exception:
+                    thread = None
+
             if thread:
                 await thread.send("⏰ **Anúncio encerrado automaticamente.**")
+                try:
+                    await self._send_extraordinary_staff_review(thread)
+                except Exception:
+                    pass
                 await thread.edit(locked=True)
             db.mark_forum_post_closed(post_id)
 

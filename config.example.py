@@ -22,3 +22,10 @@ GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 FORUM_CHANNEL_ID = int(os.getenv("FORUM_CHANNEL_ID", "0"))
 FORUM_TAG_ID = int(os.getenv("FORUM_TAG_ID", "0"))
 G3X_ROLE_ID = int(os.getenv("G3X_ROLE_ID", "0"))
+EXTRAORDINARY_STAFF_CHANNEL_ID = int(
+    os.getenv("EXTRAORDINARY_STAFF_CHANNEL_ID", "0")
+)
+
+EXTRAORDINARY_STAFF_WEBHOOK_URL = os.getenv(
+    "EXTRAORDINARY_STAFF_WEBHOOK_URL", ""
+)
