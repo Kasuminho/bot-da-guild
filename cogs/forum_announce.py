@@ -429,14 +429,27 @@ class ForumAnnounce(commands.Cog):
         "🇺", "🇻", "🇼", "🇽", "🇾", "🇿",
     ]
 
-    def _is_epic_announcement(self, text: str) -> bool:
-        normalized = (text or "").casefold()
-        return (
-            "epic" in normalized
-            or "épic" in normalized
-            or "epico" in normalized
-            or "épico" in normalized
-        )
+    def _is_heroic_item(self, item_name: str) -> bool:
+        candidates = [item_name.strip()]
+
+        if " / " in item_name:
+            left, right = item_name.split(" / ", 1)
+            candidates.extend([left.strip(), right.strip()])
+
+        seen = set()
+        for candidate in candidates:
+            if not candidate:
+                continue
+            normalized = candidate.casefold()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+
+            category = db.get_forum_item_category_by_name(candidate)
+            if (category or "").casefold() == "heroic":
+                return True
+
+        return False
 
     def _extract_item_name_from_thread(self, thread_name: str) -> str:
         if "–" in thread_name:
@@ -499,7 +512,8 @@ class ForumAnnounce(commands.Cog):
         if EXTRAORDINARY_STAFF_CHANNEL_ID <= 0 and not EXTRAORDINARY_STAFF_WEBHOOK_URL:
             return
 
-        if not self._is_epic_announcement(thread.name):
+        item_name = self._extract_item_name_from_thread(thread.name)
+        if not self._is_heroic_item(item_name):
             return
 
         participants, media_message = await self._collect_participants(thread)
@@ -507,8 +521,6 @@ class ForumAnnounce(commands.Cog):
             return
 
         limited_participants = participants[: len(self.PARTICIPANT_REACTIONS)]
-        item_name = self._extract_item_name_from_thread(thread.name)
-
         lines = []
         for idx, member in enumerate(limited_participants):
             lines.append(f"{self.PARTICIPANT_REACTIONS[idx]} {member.display_name} (`{member.id}`)")
@@ -519,9 +531,9 @@ class ForumAnnounce(commands.Cog):
             )
 
         embed = discord.Embed(
-            title="🟣 Votação extraordinária de drop épico",
+            title="🟣 Votação extraordinária de drop heroico",
             description=(
-                "Anúncio épico encerrado automaticamente.\n"
+                "Anúncio heroico encerrado automaticamente.\n"
                 "Reajam no emoji do participante que deve receber este item."
             ),
             color=discord.Color.purple(),

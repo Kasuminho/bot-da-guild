@@ -663,6 +663,21 @@ def get_forum_items_for_select():
     """)
     return cursor.fetchall()
 
+
+def get_forum_item_category_by_name(item_name: str):
+    cursor.execute(
+        """
+        SELECT category
+        FROM forum_items
+        WHERE active = 1
+          AND (LOWER(item_pt) = LOWER(?) OR LOWER(item_en) = LOWER(?))
+        LIMIT 1
+        """,
+        (item_name, item_name),
+    )
+    row = cursor.fetchone()
+    return row[0] if row else None
+
 # =========================
 # BOSS ROTATIONS (FINAL)
 # =========================
