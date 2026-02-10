@@ -17,6 +17,7 @@ from config import (
     STAFF_ROLE_ID,
     EXTRAORDINARY_STAFF_CHANNEL_ID,
     EXTRAORDINARY_STAFF_WEBHOOK_URL,
+    FORUM_ANNOUNCE_TEST_MODE,
 )
 
 # ==========================================================
@@ -386,7 +387,16 @@ class AnnounceFlow(View):
             )
 
             criteria = CRITERIA_TEXTS[(item[1], self.mode)]
+            warning_prefix = ""
+            if FORUM_ANNOUNCE_TEST_MODE:
+                warning_prefix = (
+                    "🚨🚨🚨 **ATENÇÃO: POST DE TESTE DO BOT** 🚨🚨🚨\n"
+                    "⚠️ **NÃO É ANÚNCIO REAL. ESTE POST É EXCLUSIVO PARA TESTAR IMPLEMENTAÇÕES.** ⚠️\n"
+                    "❌ **IGNORE ESTE TÓPICO PARA DECISÕES DE JOGO.** ❌\n\n"
+                )
+
             await post.thread.send(
+                f"{warning_prefix}"
                 f"<@&{G3X_ROLE_ID}>\n\n"
                 f"🇧🇷 **Português**\n"
                 f"🟣 **Item:** {item[3]}\n"
