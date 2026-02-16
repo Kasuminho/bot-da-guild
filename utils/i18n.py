@@ -46,6 +46,10 @@ TEXT = {
         "pt": "❌ Esta thread não está vinculada a nenhum request.",
         "en": "❌ This thread is not linked to any request."
     },
+    "request_delete_confirm_required": {
+        "pt": "⚠️ Confirmação obrigatória: marque `confirm` como verdadeiro para remover o request.",
+        "en": "⚠️ Confirmation required: set `confirm` to true to remove the request."
+    },
     "request_delete_ok": {
         "pt": "🗑️ Request de **{item}** removido com sucesso.",
         "en": "🗑️ Request for **{item}** removed successfully."

@@ -26,9 +26,11 @@ CREATE TABLE IF NOT EXISTS one_time_reminders (
     channel_id INTEGER NOT NULL,
     timestamp INTEGER NOT NULL,
     sent INTEGER DEFAULT 0,
+    warned_4h INTEGER DEFAULT 0,
     warned_1h INTEGER DEFAULT 0,
     warned_30m INTEGER DEFAULT 0,
-    warned_now INTEGER DEFAULT 0
+    warned_now INTEGER DEFAULT 0,
+    warned_daily_day INTEGER
 )
 """
 )
@@ -196,6 +198,25 @@ cursor.execute(
 
 conn.commit()
 
+def _ensure_one_time_reminders_columns():
+    cursor.execute("PRAGMA table_info(one_time_reminders)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    if "warned_4h" not in columns:
+        cursor.execute(
+            "ALTER TABLE one_time_reminders ADD COLUMN warned_4h INTEGER DEFAULT 0"
+        )
+
+    if "warned_daily_day" not in columns:
+        cursor.execute(
+            "ALTER TABLE one_time_reminders ADD COLUMN warned_daily_day INTEGER"
+        )
+
+    conn.commit()
+
+
+_ensure_one_time_reminders_columns()
+
 
 def add_player(discord_id, nickname, language, channel_id):
     cursor.execute(
@@ -248,7 +269,19 @@ def add_reminder(tipo, nome, channel_id, timestamp):
 def get_active_reminders():
     cursor.execute(
         """
-        SELECT * FROM one_time_reminders
+        SELECT
+            id,
+            tipo,
+            nome,
+            channel_id,
+            timestamp,
+            sent,
+            warned_4h,
+            warned_1h,
+            warned_30m,
+            warned_now,
+            warned_daily_day
+        FROM one_time_reminders
         WHERE sent = 0
     """
     )
@@ -261,6 +294,15 @@ def mark_warned(reminder_id, field):
     )
     conn.commit()
 
+
+
+
+def set_warned_daily_day(reminder_id: int, day_key: int):
+    cursor.execute(
+        "UPDATE one_time_reminders SET warned_daily_day = ? WHERE id = ?",
+        (day_key, reminder_id),
+    )
+    conn.commit()
 
 def mark_reminder_sent(reminder_id):
     cursor.execute("UPDATE one_time_reminders SET sent=1 WHERE id=?", (reminder_id,))
@@ -1120,6 +1162,19 @@ def get_request_by_thread(thread_id: int, item_name: str):
         (thread_id,item_name)
     )
     return cursor.fetchone()
+
+
+def get_active_request_items_by_thread(thread_id: int):
+    cursor.execute(
+        """
+        SELECT item_name
+        FROM item_requests
+        WHERE thread_id = ?
+        ORDER BY rank_position ASC
+        """,
+        (thread_id,),
+    )
+    return [row[0] for row in cursor.fetchall()]
 
 def delete_request(request_id: int):
     cursor.execute(
