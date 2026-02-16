@@ -46,6 +46,28 @@ class ItemRequests(commands.Cog):
             return "en"
         return "pt"
 
+    async def active_thread_item_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        if not isinstance(interaction.channel, discord.Thread):
+            return []
+
+        items = db.get_active_request_items_by_thread(interaction.channel.id)
+        if current:
+            current_lower = current.lower()
+            items = [item for item in items if current_lower in item.lower()]
+
+        return [
+            app_commands.Choice(
+                name=f"{FIXED_ITEMS[item]['pt']} / {FIXED_ITEMS[item]['en']}",
+                value=item,
+            )
+            for item in items[:25]
+            if item in FIXED_ITEMS
+        ]
+
     def normalize_last_update(self, request_id: int, last_update: int) -> int:
         """
         Corrige timestamps inválidos:
@@ -184,19 +206,19 @@ class ItemRequests(commands.Cog):
     # ==========================================================
 
     @app_commands.command(
-        name="request_deliver",
+        name="request_delivery",
         description="Registra entrega parcial ou total do item"
     )
     @app_commands.checks.has_role(STAFF_ROLE_ID)
     @app_commands.describe(
-        item="Item a Entregar",
-        quantity="Quantidade total desejada"
+        item="Item a entregar (apenas requests ativos nesta thread)",
+        quantity="Quantidade entregue"
     )
-    @app_commands.choices(item=ITEM_CHOICES)
-    async def request_deliver(
+    @app_commands.autocomplete(item=active_thread_item_autocomplete)
+    async def request_delivery(
         self,
         interaction: discord.Interaction,
-        item: app_commands.Choice[str],
+        item: str,
         quantity: int
     ):
         self.ensure_thread(interaction)
@@ -214,7 +236,7 @@ class ItemRequests(commands.Cog):
             )
             return
 
-        item_key = item.value
+        item_key = item
 
         ok = db.deliver_item_by_thread(
             interaction.channel.id,
@@ -330,17 +352,22 @@ class ItemRequests(commands.Cog):
 
     @app_commands.command(
         name="request_delete",
-        description="Remove this item request"
+        description="Remove este request de item"
     )
     @app_commands.checks.has_role(STAFF_ROLE_ID)
-    @app_commands.choices(item=ITEM_CHOICES)
+    @app_commands.describe(
+        item="Item a remover (apenas requests ativos nesta thread)",
+        confirm="Confirme para remover o request"
+    )
+    @app_commands.autocomplete(item=active_thread_item_autocomplete)
     async def request_delete(
         self,
         interaction: discord.Interaction,
-        item: app_commands.Choice[str]
+        item: str,
+        confirm: bool
     ):
         thread = interaction.channel
-        item_key = item.value
+        item_key = item
         default_lang = "pt"
 
         if not isinstance(thread, discord.Thread):
@@ -359,6 +386,14 @@ class ItemRequests(commands.Cog):
                 ephemeral=True
             )
             return
+
+        if not confirm:
+            await interaction.response.send_message(
+                TEXT["request_delete_confirm_required"][request_lang],
+                ephemeral=True
+            )
+            return
+
         request_id, _discord_id, item_name, _rank = req
 
         db.delete_request(request_id)

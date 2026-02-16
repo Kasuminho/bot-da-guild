@@ -18,6 +18,8 @@ TIMEZONES = {
     "🌍 UTC": "UTC",
 }
 
+DAILY_REMINDER_TIMEZONE = ZoneInfo("America/Sao_Paulo")
+
 
 # ==========================================================
 # MODAL – DATA/HORA
@@ -161,6 +163,8 @@ class Reminders(commands.Cog):
                 f"🌍 Timezone: On your local time where show on computer/cellphone\n"
                 f"⏰ <t:{timestamp}:F>\n\n"
                 f"🔔 Avisos automáticos:\n"
+                f"• 1 vez por dia às 12h (até o evento)\n"
+                f"• 4 horas antes\n"
                 f"• 1 hora antes\n"
                 f"• 30 minutos antes\n"
                 f"• Na hora"
@@ -188,16 +192,43 @@ class Reminders(commands.Cog):
                 channel_id,
                 timestamp,
                 _,
+                warned_4h,
                 warned_1h,
                 warned_30m,
                 warned_now,
+                warned_daily_day,
             ) = r
 
             channel = self.bot.get_channel(channel_id)
             if not channel:
                 continue
 
-            if not warned_1h and now >= timestamp - 3600:
+            now_dt = datetime.fromtimestamp(now, tz=DAILY_REMINDER_TIMEZONE)
+            today_key = int(now_dt.strftime("%Y%m%d"))
+            noon_today = now_dt.replace(hour=12, minute=0, second=0, microsecond=0)
+            noon_ts = int(noon_today.timestamp())
+
+            if (
+                now < timestamp
+                and now >= noon_ts
+                and warned_daily_day != today_key
+            ):
+                await channel.send(
+                    f"<@&{G3X_ROLE_ID}>\n"
+                    f"📅 **Lembrete diário (12h)** — {tipo}: {nome}\n"
+                    f"⏰ <t:{timestamp}:F>"
+                )
+                db.set_warned_daily_day(reminder_id, today_key)
+
+            if not warned_4h and now >= timestamp - 14400:
+                await channel.send(
+                    f"<@&{G3X_ROLE_ID}>\n"
+                    f"⏳ **Faltam 4 horas** — {tipo}: {nome}\n"
+                    f"⏰ <t:{timestamp}:F>"
+                )
+                db.mark_warned(reminder_id, "warned_4h")
+
+            elif not warned_1h and now >= timestamp - 3600:
                 await channel.send(
                     f"<@&{G3X_ROLE_ID}>\n"
                     f"⏳ **Falta 1 hora** — {tipo}: {nome}\n"
@@ -221,6 +252,7 @@ class Reminders(commands.Cog):
                 )
                 db.mark_warned(reminder_id, "warned_now")
                 db.mark_reminder_sent(reminder_id)
+
 
 
 async def setup(bot):
