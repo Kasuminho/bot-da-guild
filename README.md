@@ -53,7 +53,7 @@ No fluxo `/anunciar`, quando os caminhos forem URLs, o tópico do fórum é cria
 
 ### Migrar imagens já existentes (as que já estão na rotina)
 
-Se você já tem itens cadastrados apontando para arquivos locais (`assets/forum_items/...`), rode o script de migração:
+Se você já tem registros antigos apontando para arquivos locais (ex.: `assets/forum_items/...` e `images/daily/...`), rode o script de migração:
 
 ```bash
 # 1) Configure provider remoto (exemplo Google Drive)
@@ -68,7 +68,11 @@ python scripts/migrate_existing_images_to_remote.py --dry-run
 python scripts/migrate_existing_images_to_remote.py
 ```
 
-O script faz upload das imagens locais, atualiza `forum_items.image1_path`/`image2_path` para URLs remotas e mantém os itens já remotos intactos.
+O script faz upload das imagens locais e atualiza no banco:
+- `forum_items.image1_path` e `forum_items.image2_path`
+- `daily_announcements.image_pt_path` e `daily_announcements.image_en_path`
+
+Registros que já estão com URL remota são ignorados.
 
 ## Boas práticas
 - Não comite tokens — use variáveis de ambiente.
