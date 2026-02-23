@@ -25,6 +25,55 @@ Um bot para guilda (Discord). Este repositório contém o código principal e m�
    python bot.py
    ```
 
+## Armazenamento online de imagens (Google Drive)
+
+Para não depender de arquivos locais no container, você pode salvar imagens cadastradas diretamente no Drive.
+
+1. Configure o provider:
+   ```bash
+   IMAGE_STORAGE_PROVIDER=google_drive
+   ```
+2. Crie uma pasta no Google Drive e configure o ID:
+   ```bash
+   GOOGLE_DRIVE_FOLDER_ID=seu_folder_id
+   ```
+3. Configure credenciais de Service Account (um dos formatos):
+   - JSON inline em variável:
+     ```bash
+     GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON={...json...}
+     ```
+   - Ou caminho de arquivo no ambiente:
+     ```bash
+     GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE=/path/credentials.json
+     ```
+
+Quando o provider estiver como `google_drive`, o `/cadastraritem` faz upload para o Drive e salva URL pública no banco.
+No fluxo `/anunciar`, quando os caminhos forem URLs, o tópico do fórum é criado com os links das imagens no conteúdo.
+
+
+### Migrar imagens já existentes (as que já estão na rotina)
+
+Se você já tem registros antigos apontando para arquivos locais (ex.: `assets/forum_items/...` e `images/daily/...`), rode o script de migração:
+
+```bash
+# 1) Configure provider remoto (exemplo Google Drive)
+export IMAGE_STORAGE_PROVIDER=google_drive
+export GOOGLE_DRIVE_FOLDER_ID=seu_folder_id
+export GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
+
+# 2) Simular sem alterar banco
+python scripts/migrate_existing_images_to_remote.py --dry-run
+
+# 3) Migrar de verdade
+python scripts/migrate_existing_images_to_remote.py
+```
+
+O script faz upload das imagens locais e atualiza no banco:
+- `forum_items.image1_path` e `forum_items.image2_path`
+- `daily_announcements.image_pt_path` e `daily_announcements.image_en_path`
+
+Registros que já estão com URL remota são ignorados.
+
 ## Boas práticas
 - Não comite tokens — use variáveis de ambiente.
 - Logs locais não devem ficar no repo (arquivo `bot.log` está em `.gitignore`).

@@ -1,5 +1,6 @@
 import datetime
 import os
+import tempfile
 import time
 
 import discord
@@ -8,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 import db
+from utils.image_storage import is_remote_storage_enabled, is_remote_url, upload_image
 
 FORCE_CHANNEL_ID = 1431340166877806644
 IMAGE_DIR = "images/daily"
@@ -77,11 +79,21 @@ class DailyAnnouncement(commands.Cog):
         texto_en = GoogleTranslator(source="pt", target="en").translate(texto_pt)
 
         ts = int(time.time())
-        img_pt_path = f"{IMAGE_DIR}/{ts}_pt.png"
-        img_en_path = f"{IMAGE_DIR}/{ts}_en.png"
 
-        await imagem_pt.save(img_pt_path)
-        await imagem_en.save(img_en_path)
+        if is_remote_storage_enabled():
+            with tempfile.TemporaryDirectory(prefix="daily_announcement_") as temp_dir:
+                local_pt = os.path.join(temp_dir, "pt.png")
+                local_en = os.path.join(temp_dir, "en.png")
+                await imagem_pt.save(local_pt)
+                await imagem_en.save(local_en)
+
+                img_pt_path = upload_image(local_pt, f"daily_{ts}_pt.png")
+                img_en_path = upload_image(local_en, f"daily_{ts}_en.png")
+        else:
+            img_pt_path = f"{IMAGE_DIR}/{ts}_pt.png"
+            img_en_path = f"{IMAGE_DIR}/{ts}_en.png"
+            await imagem_pt.save(img_pt_path)
+            await imagem_en.save(img_en_path)
 
         db.add_daily_announcement(texto_pt, texto_en, img_pt_path, img_en_path)
 
@@ -141,16 +153,21 @@ class DailyAnnouncement(commands.Cog):
 
         _, text_pt, text_en, img_pt, img_en = ann
 
-        files = [
-            discord.File(img_pt, filename="pt.png"),
-            discord.File(img_en, filename="en.png"),
-        ]
+        files = []
 
         embed_pt = discord.Embed(title="📢 Aviso", description=text_pt, color=0x2ECC71)
-        embed_pt.set_image(url="attachment://pt.png")
-
         embed_en = discord.Embed(title="📢 Notice", description=text_en, color=0x3498DB)
-        embed_en.set_image(url="attachment://en.png")
+
+        if is_remote_url(img_pt) and is_remote_url(img_en):
+            embed_pt.set_image(url=img_pt)
+            embed_en.set_image(url=img_en)
+        else:
+            files = [
+                discord.File(img_pt, filename="pt.png"),
+                discord.File(img_en, filename="en.png"),
+            ]
+            embed_pt.set_image(url="attachment://pt.png")
+            embed_en.set_image(url="attachment://en.png")
 
         await channel.send(embeds=[embed_pt, embed_en], files=files)
 
