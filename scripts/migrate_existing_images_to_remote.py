@@ -12,13 +12,16 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import db
 from utils.image_storage import get_image_storage_provider, is_remote_url, upload_image
-
-ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
 def parse_args() -> argparse.Namespace:
