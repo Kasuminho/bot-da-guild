@@ -1,10 +1,10 @@
 import discord
 from discord.ext import commands
 
-from db import cursor
+import db
 from utils.party_embed import build_party_embed
 
-MAX_REACTIONS = 4  # criador já está na party
+MAX_REACTIONS = 4
 
 
 class PartyEvents(commands.Cog):
@@ -16,20 +16,15 @@ class PartyEvents(commands.Cog):
         if payload.emoji.name != "✅":
             return
 
-        cursor.execute(
-            "SELECT * FROM parties WHERE message_id = ?", (payload.message_id,)
-        )
-        data = cursor.fetchone()
+        data = db.get_party_by_message(payload.message_id)
         if not data:
             return
 
         (_, channel_id, creator_id, reason_pt, reason_en, start_ts, end_ts) = data
-
         channel = self.bot.get_channel(channel_id)
         msg = await channel.fetch_message(payload.message_id)
 
         reaction = discord.utils.get(msg.reactions, emoji="✅")
-
         users = [u async for u in reaction.users() if not u.bot]
 
         if len(users) > MAX_REACTIONS:
@@ -39,11 +34,7 @@ class PartyEvents(commands.Cog):
 
         creator = msg.guild.get_member(creator_id)
         members = [creator.mention] + [u.mention for u in users]
-
-        embed = build_party_embed(
-            reason_pt, reason_en, start_ts, end_ts, creator, members
-        )
-
+        embed = build_party_embed(reason_pt, reason_en, start_ts, end_ts, creator, members)
         await msg.edit(embed=embed)
 
     @commands.Cog.listener()
@@ -51,29 +42,20 @@ class PartyEvents(commands.Cog):
         if payload.emoji.name != "✅":
             return
 
-        cursor.execute(
-            "SELECT * FROM parties WHERE message_id = ?", (payload.message_id,)
-        )
-        data = cursor.fetchone()
+        data = db.get_party_by_message(payload.message_id)
         if not data:
             return
 
         (_, channel_id, creator_id, reason_pt, reason_en, start_ts, end_ts) = data
-
         channel = self.bot.get_channel(channel_id)
         msg = await channel.fetch_message(payload.message_id)
 
         reaction = discord.utils.get(msg.reactions, emoji="✅")
-
         users = [u async for u in reaction.users() if not u.bot]
 
         creator = msg.guild.get_member(creator_id)
         members = [creator.mention] + [u.mention for u in users]
-
-        embed = build_party_embed(
-            reason_pt, reason_en, start_ts, end_ts, creator, members
-        )
-
+        embed = build_party_embed(reason_pt, reason_en, start_ts, end_ts, creator, members)
         await msg.edit(embed=embed)
 
 

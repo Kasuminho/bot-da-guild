@@ -327,23 +327,7 @@ class RotationEligibility(commands.Cog):
     @tasks.loop(time=time(hour=6, minute=0, tzinfo=pytz.timezone("America/Sao_Paulo")))
     async def cleanup_duplicates(self):
         try:
-            before = db.cursor.execute(
-                "SELECT COUNT(*) FROM boss_participation"
-            ).fetchone()[0]
-
-            db.cursor.execute("""
-                DELETE FROM boss_participation
-                WHERE id NOT IN (
-                    SELECT MIN(id)
-                    FROM boss_participation
-                    GROUP BY rotation_id, discord_id
-                )
-            """)
-            db.conn.commit()
-
-            after = db.cursor.execute(
-                "SELECT COUNT(*) FROM boss_participation"
-            ).fetchone()[0]
+            before, after = db.cleanup_boss_participation_duplicates()
 
             removed = before - after
             if removed > 0:

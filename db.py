@@ -1,561 +1,316 @@
-import sqlite3
+import os
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Iterable, Optional
 
-conn = sqlite3.connect("database.db", check_same_thread=False)
-cursor = conn.cursor()
+import psycopg2
+from psycopg2 import sql
 
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS players (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    discord_id INTEGER UNIQUE,
-    nickname_ingame TEXT,
-    language TEXT,
-    channel_id INTEGER
-)
-"""
-)
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS one_time_reminders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tipo TEXT NOT NULL,
-    nome TEXT NOT NULL,
-    channel_id INTEGER NOT NULL,
-    timestamp INTEGER NOT NULL,
-    sent INTEGER DEFAULT 0,
-    warned_4h INTEGER DEFAULT 0,
-    warned_1h INTEGER DEFAULT 0,
-    warned_30m INTEGER DEFAULT 0,
-    warned_now INTEGER DEFAULT 0,
-    warned_daily_day INTEGER
-)
-"""
-)
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL não definido. Configure uma URL PostgreSQL válida para iniciar o bot."
+    )
 
-cursor.execute(
-    """
-    CREATE TABLE IF NOT EXISTS boss_rotations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    rotation_type TEXT NOT NULL, -- T3 | T4
-    day INTEGER NOT NULL,        -- YYYYMMDD
-    created_at INTEGER NOT NULL,
-    UNIQUE(rotation_type, day)
-)
-    """
-)
+conn = psycopg2.connect(DATABASE_URL)
+conn.autocommit = False
 
-cursor.execute(
-    """
-    CREATE TABLE IF NOT EXISTS boss_participation (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    rotation_id INTEGER NOT NULL,
-    discord_id INTEGER NOT NULL,
-    present INTEGER NOT NULL, -- 1 = presente, 0 = falta
-    FOREIGN KEY(rotation_id) REFERENCES boss_rotations(id)
-)
-    """
-)
-
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS forum_posts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id INTEGER UNIQUE,
-    close_time INTEGER,
-    closed INTEGER DEFAULT 0,
-    delivered INTEGER DEFAULT 0
-)
-"""
-)
-
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS drops (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    discord_id INTEGER,
-    nickname_ingame TEXT,
-    item TEXT,
-    thread_id INTEGER,
-    staff_id INTEGER,
-    delivered_at INTEGER
-)
-"""
-)
-
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS daily_announcements (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    text_pt TEXT NOT NULL,
-    text_en TEXT NOT NULL,
-    image_pt_path TEXT NOT NULL,
-    image_en_path TEXT NOT NULL,
-    active INTEGER DEFAULT 1,
-    created_at INTEGER NOT NULL
-)
-"""
-)
-
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS player_levels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    player_id INTEGER NOT NULL,
-    player_name TEXT NOT NULL,
-    level INTEGER NOT NULL,
-    day INTEGER NOT NULL, -- YYYYMMDD
-    created_at INTEGER NOT NULL
-)
-"""
-)
-
-cursor.execute(
-    """
-CREATE UNIQUE INDEX IF NOT EXISTS idx_player_day
-ON player_levels(player_id, day)
-"""
-)
-
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS parties (
-    message_id INTEGER PRIMARY KEY,
-    channel_id INTEGER NOT NULL,
-    creator_id INTEGER NOT NULL,
-    reason_pt TEXT NOT NULL,
-    reason_en TEXT NOT NULL,
-    start_ts INTEGER NOT NULL,
-    end_ts INTEGER NOT NULL
-)
-"""
-)
-
-cursor.execute(
-    """
-CREATE TABLE IF NOT EXISTS forum_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-    kind TEXT NOT NULL,        -- equipment | skill
-    category TEXT NOT NULL,    -- PvE | PvP
-
-    item_pt TEXT NOT NULL,
-    item_en TEXT NOT NULL,
-
-    type_pt TEXT NOT NULL,
-    type_en TEXT NOT NULL,
-
-    image1_path TEXT NOT NULL,
-    image2_path TEXT NOT NULL,
-
-    active INTEGER DEFAULT 1,
-    created_at INTEGER NOT NULL
-)
-"""
-)
-
-cursor.execute(
-    """
- CREATE TABLE IF NOT EXISTS item_requests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-    discord_id INTEGER NOT NULL,
-    player_name TEXT NOT NULL,
-
-    item_name TEXT NOT NULL,
-
-    total_quantity INTEGER NOT NULL,
-    remaining_quantity INTEGER NOT NULL,
-
-    rank_position INTEGER NOT NULL,
-
-    thread_id INTEGER NOT NULL,
-    thread_channel_id INTEGER NOT NULL,
-
-    created_at INTEGER NOT NULL,
-    last_update INTEGER NOT NULL,
-
-    warned_3d INTEGER DEFAULT 0,
-    warned_4d INTEGER DEFAULT 0
-)
-    """
-)
-
-cursor.execute(
-    """
-    CREATE TABLE IF NOT EXISTS item_request_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    request_id INTEGER NOT NULL,
-    action TEXT NOT NULL, -- created | updated | delivered | rank_down
-    info TEXT,
-    thread_id INTEGER,
-    created_at INTEGER NOT NULL
-)
-    """
-)
-
-conn.commit()
-
-def _ensure_one_time_reminders_columns():
-    cursor.execute("PRAGMA table_info(one_time_reminders)")
-    columns = {row[1] for row in cursor.fetchall()}
-
-    if "warned_4h" not in columns:
-        cursor.execute(
-            "ALTER TABLE one_time_reminders ADD COLUMN warned_4h INTEGER DEFAULT 0"
-        )
-
-    if "warned_daily_day" not in columns:
-        cursor.execute(
-            "ALTER TABLE one_time_reminders ADD COLUMN warned_daily_day INTEGER"
-        )
-
-    conn.commit()
+SCHEMA_PATH = Path(__file__).resolve().parent / "sql" / "schema.sql"
 
 
-_ensure_one_time_reminders_columns()
+@contextmanager
+def get_cursor():
+    cur = conn.cursor()
+    try:
+        yield cur
+    finally:
+        cur.close()
+
+
+@contextmanager
+def transaction():
+    try:
+        yield
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def execute(
+    query: str,
+    params: Optional[Iterable[Any]] = None,
+    fetchone: bool = False,
+    fetchall: bool = False,
+):
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(query, tuple(params or ()))
+            if fetchone:
+                return cur.fetchone()
+            if fetchall:
+                return cur.fetchall()
+    return None
+
+
+def ensure_schema():
+    schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(schema_sql)
+
+
+ensure_schema()
 
 
 def add_player(discord_id, nickname, language, channel_id):
-    cursor.execute(
+    execute(
         """
-        INSERT OR REPLACE INTO players
-        (discord_id, nickname_ingame, language, channel_id)
-        VALUES (?, ?, ?, ?)
-    """,
+        INSERT INTO players (discord_id, nickname_ingame, language, channel_id)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT(discord_id)
+        DO UPDATE SET
+            nickname_ingame = EXCLUDED.nickname_ingame,
+            language = EXCLUDED.language,
+            channel_id = EXCLUDED.channel_id
+        """,
         (discord_id, nickname, language, channel_id),
     )
-    conn.commit()
 
 
 def update_channel(discord_id, channel_id):
-    cursor.execute(
-        "UPDATE players SET channel_id=? WHERE discord_id=?", (channel_id, discord_id)
-    )
-    conn.commit()
+    execute("UPDATE players SET channel_id=%s WHERE discord_id=%s", (channel_id, discord_id))
 
 
 def get_all_players():
-    cursor.execute("SELECT * FROM players")
-    return cursor.fetchall()
+    return execute("SELECT * FROM players", fetchall=True) or []
 
 
 def get_player_language(discord_id: int):
-    cursor.execute(
+    row = execute(
         """
         SELECT language
         FROM players
-        WHERE discord_id = ?
+        WHERE discord_id = %s
         """,
         (discord_id,),
+        fetchone=True,
     )
-    row = cursor.fetchone()
     return row[0] if row else None
 
 
 def add_reminder(tipo, nome, channel_id, timestamp):
-    cursor.execute(
+    execute(
         """
         INSERT INTO one_time_reminders (tipo, nome, channel_id, timestamp)
-        VALUES (?, ?, ?, ?)
-    """,
+        VALUES (%s, %s, %s, %s)
+        """,
         (tipo, nome, channel_id, timestamp),
     )
-    conn.commit()
 
 
 def get_active_reminders():
-    cursor.execute(
+    return execute(
         """
-        SELECT
-            id,
-            tipo,
-            nome,
-            channel_id,
-            timestamp,
-            sent,
-            warned_4h,
-            warned_1h,
-            warned_30m,
-            warned_now,
-            warned_daily_day
+        SELECT id, tipo, nome, channel_id, timestamp, sent, warned_4h, warned_1h,
+               warned_30m, warned_now, warned_daily_day
         FROM one_time_reminders
-        WHERE sent = 0
-    """
-    )
-    return cursor.fetchall()
+        WHERE sent = FALSE
+        """,
+        fetchall=True,
+    ) or []
+
+
+ALLOWED_REMINDER_WARN_FIELDS = {"warned_4h", "warned_1h", "warned_30m", "warned_now"}
 
 
 def mark_warned(reminder_id, field):
-    cursor.execute(
-        f"UPDATE one_time_reminders SET {field}=1 WHERE id=?", (reminder_id,)
-    )
-    conn.commit()
+    if field not in ALLOWED_REMINDER_WARN_FIELDS:
+        raise ValueError(f"Campo inválido para reminder: {field}")
 
-
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(
+                sql.SQL("UPDATE one_time_reminders SET {}=TRUE WHERE id=%s").format(
+                    sql.Identifier(field)
+                ),
+                (reminder_id,),
+            )
 
 
 def set_warned_daily_day(reminder_id: int, day_key: int):
-    cursor.execute(
-        "UPDATE one_time_reminders SET warned_daily_day = ? WHERE id = ?",
+    execute(
+        "UPDATE one_time_reminders SET warned_daily_day = %s WHERE id = %s",
         (day_key, reminder_id),
     )
-    conn.commit()
+
 
 def mark_reminder_sent(reminder_id):
-    cursor.execute("UPDATE one_time_reminders SET sent=1 WHERE id=?", (reminder_id,))
-    conn.commit()
+    execute("UPDATE one_time_reminders SET sent=TRUE WHERE id=%s", (reminder_id,))
 
 
 def get_pending_reminders(now):
-    cursor.execute(
-        "SELECT * FROM one_time_reminders WHERE sent=0 AND timestamp<=?", (now,)
-    )
-    return cursor.fetchall()
+    return execute(
+        "SELECT * FROM one_time_reminders WHERE sent=FALSE AND timestamp<=%s",
+        (now,),
+        fetchall=True,
+    ) or []
 
 
 def mark_as_sent(reminder_id):
-    cursor.execute("UPDATE one_time_reminders SET sent=1 WHERE id=?", (reminder_id,))
-    conn.commit()
+    execute("UPDATE one_time_reminders SET sent=TRUE WHERE id=%s", (reminder_id,))
 
 
 def upsert_player_channel_with_language(discord_id, language, channel_id):
-    cursor.execute(
+    execute(
         """
         INSERT INTO players (discord_id, nickname_ingame, language, channel_id)
-        VALUES (?, NULL, ?, ?)
+        VALUES (%s, NULL, %s, %s)
         ON CONFLICT(discord_id)
-        DO UPDATE SET
-            channel_id = excluded.channel_id,
-            language = excluded.language
-    """,
+        DO UPDATE SET channel_id = EXCLUDED.channel_id, language = EXCLUDED.language
+        """,
         (discord_id, language, channel_id),
     )
-    conn.commit()
-
-
-# =========================
-# FORUM POSTS
-# =========================
 
 
 def add_forum_post(thread_id, close_time):
-    cursor.execute(
+    execute(
         """
-    INSERT OR IGNORE INTO forum_posts (thread_id, close_time)
-    VALUES (?, ?)
-    """,
+        INSERT INTO forum_posts (thread_id, close_time)
+        VALUES (%s, %s)
+        ON CONFLICT(thread_id) DO NOTHING
+        """,
         (thread_id, close_time),
     )
 
-    conn.commit()
-
 
 def get_open_forum_posts(now):
-    cursor.execute(
-        """
-    SELECT id, thread_id
-    FROM forum_posts
-    WHERE closed = 0 AND close_time <= ?
-    """,
+    return execute(
+        "SELECT id, thread_id FROM forum_posts WHERE closed = FALSE AND close_time <= %s",
         (now,),
-    )
-
-    rows = cursor.fetchall()
-    return rows
+        fetchall=True,
+    ) or []
 
 
 def mark_forum_post_closed(post_id):
-    cursor.execute(
-        """
-    UPDATE forum_posts
-    SET closed = 1
-    WHERE id = ?
-    """,
-        (post_id,),
-    )
-
-    conn.commit()
+    execute("UPDATE forum_posts SET closed = TRUE WHERE id = %s", (post_id,))
 
 
 def get_forum_post_by_thread(thread_id):
-    cursor.execute(
-        """
-    SELECT id, close_time, closed, delivered
-    FROM forum_posts
-    WHERE thread_id = ?
-    """,
+    return execute(
+        "SELECT id, close_time, closed, delivered FROM forum_posts WHERE thread_id = %s",
         (thread_id,),
+        fetchone=True,
     )
-
-    row = cursor.fetchone()
-    return row
 
 
 def mark_forum_post_delivered(post_id):
-    cursor.execute(
-        """
-    UPDATE forum_posts
-    SET delivered = 1
-    WHERE id = ?
-    """,
-        (post_id,),
-    )
-
-    conn.commit()
-
-
-# =========================
-# DROPS
-# =========================
+    execute("UPDATE forum_posts SET delivered = TRUE WHERE id = %s", (post_id,))
 
 
 def add_drop(discord_id, nickname, item, thread_id, staff_id):
-    cursor.execute(
+    execute(
         """
-    INSERT INTO drops (
-        discord_id,
-        nickname_ingame,
-        item,
-        thread_id,
-        staff_id,
-        delivered_at
-    ) VALUES (?, ?, ?, ?, ?, ?)
-    """,
+        INSERT INTO drops (discord_id, nickname_ingame, item, thread_id, staff_id, delivered_at)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
         (discord_id, nickname, item, thread_id, staff_id, int(time.time())),
     )
 
-    conn.commit()
-
 
 def get_last_drop(discord_id):
-    cursor.execute(
-        """
-    SELECT delivered_at
-    FROM drops
-    WHERE discord_id = ?
-    ORDER BY delivered_at DESC
-    LIMIT 1
-    """,
+    row = execute(
+        "SELECT delivered_at FROM drops WHERE discord_id = %s ORDER BY delivered_at DESC LIMIT 1",
         (discord_id,),
+        fetchone=True,
     )
-
-    row = cursor.fetchone()
-
     return row[0] if row else None
 
 
-# =========================
-# DAILY ANNOUNCEMENTS
-# =========================
-
-
-def upsert_daily_announcement(
-    channel_id, text_pt, text_en, image_pt_path, image_en_path
-):
-    cursor.execute(
+def upsert_daily_announcement(channel_id, text_pt, text_en, image_pt_path, image_en_path):
+    execute(
         """
-        INSERT INTO daily_announcements (
-            channel_id, text_pt, text_en, image_pt_path, image_en_path
-        )
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO daily_announcements (channel_id, text_pt, text_en, image_pt_path, image_en_path, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT(channel_id)
         DO UPDATE SET
-            text_pt = excluded.text_pt,
-            text_en = excluded.text_en,
-            image_pt_path = excluded.image_pt_path,
-            image_en_path = excluded.image_en_path,
-            active = 1
+            text_pt = EXCLUDED.text_pt,
+            text_en = EXCLUDED.text_en,
+            image_pt_path = EXCLUDED.image_pt_path,
+            image_en_path = EXCLUDED.image_en_path,
+            active = TRUE
         """,
-        (channel_id, text_pt, text_en, image_pt_path, image_en_path),
+        (channel_id, text_pt, text_en, image_pt_path, image_en_path, int(time.time())),
     )
-    conn.commit()
 
 
 def disable_daily_announcement(channel_id):
-    cursor.execute(
-        """
-        UPDATE daily_announcements
-        SET active = 0
-        WHERE channel_id = ?
-        """,
-        (channel_id,),
-    )
-    conn.commit()
+    execute("UPDATE daily_announcements SET active = FALSE WHERE channel_id = %s", (channel_id,))
 
 
 def add_daily_announcement(text_pt, text_en, img_pt, img_en):
-    cursor.execute(
+    execute(
         """
         INSERT INTO daily_announcements
-        (text_pt, text_en, image_pt_path, image_en_path, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        (channel_id, text_pt, text_en, image_pt_path, image_en_path, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """,
-        (text_pt, text_en, img_pt, img_en, int(time.time())),
+        (None, text_pt, text_en, img_pt, img_en, int(time.time())),
     )
-    conn.commit()
 
 
 def get_active_daily_announcements():
-    cursor.execute(
+    return execute(
         """
         SELECT id, text_pt, text_en, image_pt_path, image_en_path
         FROM daily_announcements
-        WHERE active = 1
+        WHERE active = TRUE
         ORDER BY created_at ASC
         LIMIT 4
-        """
-    )
-    return cursor.fetchall()
+        """,
+        fetchall=True,
+    ) or []
 
 
 def deactivate_daily_announcement(announcement_id):
-    cursor.execute(
-        "UPDATE daily_announcements SET active = 0 WHERE id = ?", (announcement_id,)
-    )
-    conn.commit()
+    execute("UPDATE daily_announcements SET active = FALSE WHERE id = %s", (announcement_id,))
 
 
 def get_future_reminders():
     now = int(time.time())
-    cursor.execute(
+    return execute(
         """
         SELECT id, tipo, nome, channel_id, timestamp
         FROM one_time_reminders
-        WHERE sent = 0
-          AND timestamp > ?
+        WHERE sent = FALSE AND timestamp > %s
         ORDER BY timestamp ASC
         """,
         (now,),
-    )
-    return cursor.fetchall()
+        fetchall=True,
+    ) or []
 
 
 def get_reminder_by_id(reminder_id):
-    cursor.execute(
-        """
-        SELECT tipo, nome, channel_id, timestamp
-        FROM one_time_reminders
-        WHERE id = ?
-        """,
+    return execute(
+        "SELECT tipo, nome, channel_id, timestamp FROM one_time_reminders WHERE id = %s",
         (reminder_id,),
+        fetchone=True,
     )
-    return cursor.fetchone()
 
 
 def get_players_stuck_3_days():
-    cursor.execute(
+    return execute(
         """
         SELECT player_id, player_name
         FROM player_levels
-        GROUP BY player_id
-        HAVING COUNT(DISTINCT level) = 1
-           AND COUNT(*) >= 3
-        """
-    )
-    return cursor.fetchall()
+        GROUP BY player_id, player_name
+        HAVING COUNT(DISTINCT level) = 1 AND COUNT(*) >= 3
+        """,
+        fetchall=True,
+    ) or []
 
 
 def add_player_level(player_id, player_name, level, days_ago=0):
@@ -565,648 +320,451 @@ def add_player_level(player_id, player_name, level, days_ago=0):
     day = int((datetime.utcnow() - timedelta(days=days_ago)).strftime("%Y%m%d"))
     now = int(time.time())
 
-    cursor.execute(
+    execute(
         """
-        INSERT OR IGNORE INTO player_levels
-        (player_id, player_name, level, day, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO player_levels (player_id, player_name, level, day, created_at)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (player_id, day) DO NOTHING
         """,
         (player_id, player_name, level, day, now),
     )
-    conn.commit()
 
 
 def cleanup_old_players():
     limit_day = int((datetime.utcnow() - timedelta(days=4)).strftime("%Y%m%d"))
-    cursor.execute(
+    execute(
         """
         DELETE FROM player_levels
         WHERE player_id NOT IN (
             SELECT DISTINCT player_id
             FROM player_levels
-            WHERE day >= ?
+            WHERE day >= %s
         )
         """,
         (limit_day,),
     )
-    conn.commit()
 
 
 def get_player_drops(player_id: int):
-    cursor.execute(
+    return execute(
         """
-        SELECT
-            item,
-            delivered_at,
-            staff_id
+        SELECT item, delivered_at, staff_id
         FROM drops
-        WHERE discord_id = ?
+        WHERE discord_id = %s
         ORDER BY delivered_at DESC
         LIMIT 10
-    """,
-        (player_id,),
-    )
-    return cursor.fetchall()
-
-
-def add_forum_item(
-    kind,
-    category,
-    item_pt,
-    item_en,
-    type_pt,
-    type_en,
-    image1_path,
-    image2_path,
-):
-    cursor.execute(
-        """
-        INSERT INTO forum_items (
-            kind, category,
-            item_pt, item_en,
-            type_pt, type_en,
-            image1_path, image2_path,
-            created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (
-            kind,
-            category,
-            item_pt,
-            item_en,
-            type_pt,
-            type_en,
-            image1_path,
-            image2_path,
-            int(time.time()),
-        ),
-    )
-    conn.commit()
-    return cursor.lastrowid
+        (player_id,),
+        fetchall=True,
+    ) or []
+
+
+def add_forum_item(kind, category, item_pt, item_en, type_pt, type_en, image1_path, image2_path):
+    now = int(time.time())
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO forum_items (
+                    kind, category, item_pt, item_en, type_pt, type_en, image1_path, image2_path, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (kind, category, item_pt, item_en, type_pt, type_en, image1_path, image2_path, now),
+            )
+            return cur.fetchone()[0]
 
 
 def get_forum_item(item_id: int):
-    cursor.execute(
+    return execute(
         """
-        SELECT
-            id,
-            kind,
-            category,
-            item_pt,
-            item_en,
-            type_pt,
-            type_en,
-            image1_path,
-            image2_path
+        SELECT id, kind, category, item_pt, item_en, type_pt, type_en, image1_path, image2_path
         FROM forum_items
-        WHERE id = ? AND active = 1
+        WHERE id = %s AND active = TRUE
         """,
         (item_id,),
+        fetchone=True,
     )
-    return cursor.fetchone()
 
 
 def get_forum_items_by_kind(kind: str):
-    cursor.execute(
-        """
-        SELECT id, item_pt, item_en
-        FROM forum_items
-        WHERE kind = ? AND active = 1
-        ORDER BY item_pt ASC
-        """,
+    return execute(
+        "SELECT id, item_pt, item_en FROM forum_items WHERE kind = %s AND active = TRUE ORDER BY item_pt ASC",
         (kind,),
-    )
-    return cursor.fetchall()
+        fetchall=True,
+    ) or []
 
 
 def get_all_forum_items():
-    """
-    Retorna uma lista de todos os itens do fórum no formato:
-    [(id, nome_pt, nome_en), ...]
-    """
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, item_pt, item_en FROM forum_items ORDER BY id")
-    return cursor.fetchall()
+    return execute("SELECT id, item_pt, item_en FROM forum_items ORDER BY id", fetchall=True) or []
 
 
 def get_forum_items_for_select():
-    """
-    Retorna todos os itens ativos do fórum,
-    usados no fluxo de anúncio.
-    Retorno:
-    (id, kind, item_pt, item_en)
-    """
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, kind, item_pt, item_en
-        FROM forum_items
-        WHERE active = 1
-        ORDER BY kind, item_pt ASC
-    """)
-    return cursor.fetchall()
+    return execute(
+        "SELECT id, kind, item_pt, item_en FROM forum_items WHERE active = TRUE ORDER BY kind, item_pt ASC",
+        fetchall=True,
+    ) or []
 
 
 def get_forum_item_category_by_name(item_name: str):
-    cursor.execute(
+    row = execute(
         """
         SELECT category
         FROM forum_items
-        WHERE active = 1
-          AND (LOWER(item_pt) = LOWER(?) OR LOWER(item_en) = LOWER(?))
+        WHERE active = TRUE AND (LOWER(item_pt) = LOWER(%s) OR LOWER(item_en) = LOWER(%s))
         LIMIT 1
         """,
         (item_name, item_name),
+        fetchone=True,
     )
-    row = cursor.fetchone()
     return row[0] if row else None
 
-# =========================
-# BOSS ROTATIONS (FINAL)
-# =========================
 
 def add_rotation(rotation_type: str, day: int):
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO boss_rotations
-        (rotation_type, day, created_at)
-        VALUES (?, ?, ?)
-        """,
-        (rotation_type, day, int(time.time())),
-    )
-    conn.commit()
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM boss_rotations
-        WHERE rotation_type = ? AND day = ?
-        """,
-        (rotation_type, day),
-    )
-    return cursor.fetchone()[0]
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO boss_rotations (rotation_type, day, created_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT(rotation_type, day) DO NOTHING
+                """,
+                (rotation_type, day, int(time.time())),
+            )
+            cur.execute("SELECT id FROM boss_rotations WHERE rotation_type = %s AND day = %s", (rotation_type, day))
+            return cur.fetchone()[0]
 
 
 def get_last_rotation_day():
-    cursor.execute("SELECT MAX(day) FROM boss_rotations")
-    row = cursor.fetchone()
+    row = execute("SELECT MAX(day) FROM boss_rotations", fetchone=True)
     return row[0] if row and row[0] else None
 
 
 def get_rotations_since(since_day: int):
-    cursor.execute(
-        """
-        SELECT id, day, rotation_type
-        FROM boss_rotations
-        WHERE day >= ?
-        ORDER BY day DESC
-        """,
+    return execute(
+        "SELECT id, day, rotation_type FROM boss_rotations WHERE day >= %s ORDER BY day DESC",
         (since_day,),
-    )
-    return cursor.fetchall()
+        fetchall=True,
+    ) or []
 
 
 def has_participation(rotation_id: int, discord_id: int) -> bool:
-    cursor.execute(
-        """
-        SELECT 1
-        FROM boss_participation
-        WHERE rotation_id = ?
-          AND discord_id = ?
-        LIMIT 1
-        """,
-        (rotation_id, discord_id),
+    return (
+        execute(
+            "SELECT 1 FROM boss_participation WHERE rotation_id = %s AND discord_id = %s LIMIT 1",
+            (rotation_id, discord_id),
+            fetchone=True,
+        )
+        is not None
     )
-    return cursor.fetchone() is not None
 
 
 def get_or_create_rotation(rotation_type: str, day: int) -> int:
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO boss_rotations (rotation_type, day, created_at)
-        VALUES (?, ?, ?)
-        """,
-        (rotation_type, day, int(time.time())),
-    )
-    conn.commit()
-
-    cursor.execute(
-        """
-        SELECT id
-        FROM boss_rotations
-        WHERE rotation_type = ? AND day = ?
-        """,
-        (rotation_type, day),
-    )
-    return cursor.fetchone()[0]
+    return add_rotation(rotation_type, day)
 
 
 def add_participation(rotation_id: int, discord_id: int) -> bool:
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO boss_participation
-        (rotation_id, discord_id, present)
-        VALUES (?, ?, 1)
-        """,
-        (rotation_id, discord_id),
-    )
-    conn.commit()
-    return cursor.rowcount > 0
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO boss_participation (rotation_id, discord_id, present)
+                VALUES (%s, %s, TRUE)
+                ON CONFLICT(rotation_id, discord_id) DO NOTHING
+                """,
+                (rotation_id, discord_id),
+            )
+            return cur.rowcount > 0
+
 
 def get_participation_stats(discord_id: int, start_day: str, end_day: str):
-    """
-    Retorna estatísticas de participação do jogador no período informado.
-
-    Regras:
-    - total_rotations: total de rotações T3 + T4 no período
-    - presences: quantas ele participou
-    - t4_absences: quantas rotações T4 ele faltou
-    """
-
-    # Total de rotações no período
-    cursor.execute(
-        """
-        SELECT COUNT(*)
-        FROM boss_rotations
-        WHERE day BETWEEN ? AND ?
-        """,
+    total_rotations = execute(
+        "SELECT COUNT(*) FROM boss_rotations WHERE day BETWEEN %s AND %s",
         (start_day, end_day),
-    )
-    total_rotations = cursor.fetchone()[0]
-
-    # Presenças do jogador
-    cursor.execute(
+        fetchone=True,
+    )[0]
+    presences = execute(
         """
         SELECT COUNT(*)
         FROM boss_participation bp
         JOIN boss_rotations br ON br.id = bp.rotation_id
-        WHERE bp.discord_id = ?
-          AND br.day BETWEEN ? AND ?
+        WHERE bp.discord_id = %s AND br.day BETWEEN %s AND %s
         """,
         (discord_id, start_day, end_day),
-    )
-    presences = cursor.fetchone()[0]
-
-    # Faltas em T4
-    cursor.execute(
+        fetchone=True,
+    )[0]
+    t4_absences = execute(
         """
         SELECT COUNT(*)
         FROM boss_rotations br
         WHERE br.rotation_type = 'T4'
-          AND br.day BETWEEN ? AND ?
+          AND br.day BETWEEN %s AND %s
           AND br.id NOT IN (
-              SELECT rotation_id
-              FROM boss_participation
-              WHERE discord_id = ?
+              SELECT rotation_id FROM boss_participation WHERE discord_id = %s
           )
         """,
         (start_day, end_day, discord_id),
-    )
-    t4_absences = cursor.fetchone()[0]
+        fetchone=True,
+    )[0]
+    return {"total_rotations": total_rotations, "presences": presences, "t4_absences": t4_absences}
 
-    return {
-        "total_rotations": total_rotations,
-        "presences": presences,
-        "t4_absences": t4_absences,
-    }
-    
+
 def get_rotation_history(discord_id: int, start_day: int, end_day: int):
-    """
-    Retorna todas as rotações no período, marcando se o jogador esteve presente.
-    """
-
-    cursor.execute(
+    rows = execute(
         """
-        SELECT
-            br.day,
-            br.rotation_type,
-            CASE
-                WHEN bp.id IS NOT NULL THEN 1
-                ELSE 0
-            END AS present
+        SELECT br.day, br.rotation_type,
+               CASE WHEN bp.id IS NOT NULL THEN 1 ELSE 0 END AS present
         FROM boss_rotations br
-        LEFT JOIN boss_participation bp
-            ON bp.rotation_id = br.id
-           AND bp.discord_id = ?
-        WHERE br.day BETWEEN ? AND ?
+        LEFT JOIN boss_participation bp ON bp.rotation_id = br.id AND bp.discord_id = %s
+        WHERE br.day BETWEEN %s AND %s
         ORDER BY br.day ASC
         """,
         (discord_id, start_day, end_day),
-    )
+        fetchall=True,
+    ) or []
+    return [{"day": row[0], "type": row[1], "present": bool(row[2])} for row in rows]
 
-    rows = cursor.fetchall()
-
-    return [
-        {
-            "day": row[0],
-            "type": row[1],
-            "present": bool(row[2]),
-        }
-        for row in rows
-    ]
-
-
-
-#Funções do rankeamento
 
 def add_item_request(discord_id, player_name, item_name, quantity, thread_id, thread_channel_id):
     now = int(time.time())
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT id FROM item_requests WHERE discord_id = %s AND item_name = %s",
+                (discord_id, item_name),
+            )
+            existing = cur.fetchone()
+            if existing:
+                cur.execute(
+                    """
+                    UPDATE item_requests
+                    SET total_quantity = %s, remaining_quantity = %s, last_update = %s,
+                        warned_3d = FALSE, warned_4d = FALSE
+                    WHERE id = %s
+                    """,
+                    (quantity, quantity, now, existing[0]),
+                )
+                return
 
-    cursor.execute(
-        "SELECT id FROM item_requests WHERE discord_id = ? AND item_name = ?",
-        (discord_id, item_name),
-    )
-    existing = cursor.fetchone()
-
-    if existing:
-        cursor.execute(
-            """
-            UPDATE item_requests
-            SET total_quantity = ?,
-                remaining_quantity = ?,
-                last_update = ?,
-                warned_3d = 0,
-                warned_4d = 0
-            WHERE id = ?
-            """,
-            (quantity, quantity, now, existing[0]),
-        )
-        conn.commit()
-        return
-
-    cursor.execute(
-        "SELECT COALESCE(MAX(rank_position), 0) FROM item_requests WHERE item_name = ?",
-        (item_name,),
-    )
-    rank = cursor.fetchone()[0] + 1
-
-    cursor.execute(
-        """
-        INSERT INTO item_requests (
-            discord_id, player_name, item_name,
-            total_quantity, remaining_quantity,
-            rank_position, thread_id, thread_channel_id,
-            created_at, last_update
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (discord_id, player_name, item_name, quantity, quantity,
-         rank, thread_id, thread_channel_id, now, now),
-    )
-    conn.commit()
+            cur.execute(
+                "SELECT COALESCE(MAX(rank_position), 0) FROM item_requests WHERE item_name = %s",
+                (item_name,),
+            )
+            rank = cur.fetchone()[0] + 1
+            cur.execute(
+                """
+                INSERT INTO item_requests (
+                    discord_id, player_name, item_name, total_quantity, remaining_quantity,
+                    rank_position, thread_id, thread_channel_id, created_at, last_update
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (discord_id, player_name, item_name, quantity, quantity, rank, thread_id, thread_channel_id, now, now),
+            )
 
 
 def get_item_requests_by_player(discord_id: int):
-    cursor.execute(
-        """
-        SELECT item_name
-        FROM item_requests
-        WHERE discord_id = ?
-        """,
-        (discord_id,),
-    )
-    return [row[0] for row in cursor.fetchall()]
-
+    rows = execute("SELECT item_name FROM item_requests WHERE discord_id = %s", (discord_id,), fetchall=True) or []
+    return [row[0] for row in rows]
 
 
 def update_item_request_by_thread(thread_id):
     now = int(time.time())
-    cursor.execute(
-        """
-        UPDATE item_requests
-        SET last_update = ?, warned_3d = 0, warned_4d = 0
-        WHERE thread_id = ?
-        """,
-        (now, thread_id),
-    )
-    conn.commit()
-    return cursor.rowcount > 0
-
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(
+                "UPDATE item_requests SET last_update = %s, warned_3d = FALSE, warned_4d = FALSE WHERE thread_id = %s",
+                (now, thread_id),
+            )
+            return cur.rowcount > 0
 
 
 def deliver_item_by_thread(thread_id, item_key, quantity):
     now = int(time.time())
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT id, item_name, remaining_quantity, rank_position FROM item_requests WHERE thread_id = %s AND item_name = %s",
+                (thread_id, item_key),
+            )
+            row = cur.fetchone()
+            if not row:
+                return False
 
-    cursor.execute(
-        """
-        SELECT
-            id,
-            item_name,
-            remaining_quantity,
-            rank_position
-        FROM item_requests
-        WHERE thread_id = ? AND item_name = ?
-        """,
-        (thread_id,item_key,),
-    )
+            request_id, item_name, remaining, rank = row
+            new_remaining = remaining - quantity
 
-    row = cursor.fetchone()
-    if not row:
-        return False
+            if new_remaining > 0:
+                cur.execute("UPDATE item_requests SET remaining_quantity = %s WHERE id = %s", (new_remaining, request_id))
+            else:
+                cur.execute("DELETE FROM item_requests WHERE id = %s", (request_id,))
+                cur.execute(
+                    "UPDATE item_requests SET rank_position = rank_position - 1 WHERE item_name = %s AND rank_position > %s",
+                    (item_name, rank),
+                )
 
-    request_id, item_name, remaining, rank = row
-    new_remaining = remaining - quantity
-
-    if new_remaining > 0:
-        cursor.execute(
-            """
-            UPDATE item_requests
-            SET remaining_quantity = ?
-            WHERE id = ?
-            """,
-            (new_remaining, request_id),
-        )
-    else:
-        cursor.execute(
-            "DELETE FROM item_requests WHERE id = ?", (request_id,)
-        )
-
-        cursor.execute(
-            """
-            UPDATE item_requests
-            SET rank_position = rank_position - 1
-            WHERE item_name = ?
-              AND rank_position > ?
-            """,
-            (item_name, rank),
-        )
-
-    cursor.execute(
-        """
-        INSERT INTO item_request_logs
-        (request_id, action, info, thread_id, created_at)
-        VALUES (?, 'delivered', ?, ?, ?)
-        """,
-        (request_id, f"qty={quantity}", thread_id, now),
-    )
-
-    conn.commit()
-    return True
+            cur.execute(
+                "INSERT INTO item_request_logs (request_id, action, info, thread_id, created_at) VALUES (%s, 'delivered', %s, %s, %s)",
+                (request_id, f"qty={quantity}", thread_id, now),
+            )
+            return True
 
 
 def get_all_item_requests_for_check():
-    cursor.execute(
+    return execute(
         """
-        SELECT
-            id,
-            discord_id,
-            player_name,
-            item_name,
-            rank_position,
-            thread_id,
-            thread_channel_id,
-            last_update,
-            warned_3d,
-            warned_4d
+        SELECT id, discord_id, player_name, item_name, rank_position, thread_id,
+               thread_channel_id, last_update, warned_3d, warned_4d
         FROM item_requests
         ORDER BY item_name, rank_position ASC
-        """
-    )
-    return cursor.fetchall()
+        """,
+        fetchall=True,
+    ) or []
+
+
+ALLOWED_REQUEST_WARN_FIELDS = {"warned_3d", "warned_4d"}
 
 
 def mark_request_warned(request_id, field):
-    cursor.execute(
-        f"UPDATE item_requests SET {field} = 1 WHERE id = ?",
-        (request_id,),
-    )
-    conn.commit()
+    if field not in ALLOWED_REQUEST_WARN_FIELDS:
+        raise ValueError(f"Campo inválido para item request: {field}")
+
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute(
+                sql.SQL("UPDATE item_requests SET {} = TRUE WHERE id = %s").format(sql.Identifier(field)),
+                (request_id,),
+            )
 
 
 def drop_request_rank(request_id):
     now = int(time.time())
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute("SELECT item_name, rank_position FROM item_requests WHERE id = %s", (request_id,))
+            row = cur.fetchone()
+            if not row:
+                return
+            item_name, rank = row
 
-    cursor.execute(
-        "SELECT item_name, rank_position FROM item_requests WHERE id = ?",
-        (request_id,),
-    )
-    row = cursor.fetchone()
-    if not row:
-        return
+            cur.execute("SELECT id FROM item_requests WHERE item_name = %s AND rank_position = %s", (item_name, rank + 1))
+            below = cur.fetchone()
+            if not below:
+                return
+            below_id = below[0]
 
-    item_name, rank = row
-
-    cursor.execute(
-        "SELECT id FROM item_requests WHERE item_name = ? AND rank_position = ?",
-        (item_name, rank + 1),
-    )
-    below = cursor.fetchone()
-    if not below:
-        return
-
-    below_id = below[0]
-
-    # QUEM SOBE
-    cursor.execute(
-        """
-        UPDATE item_requests
-        SET rank_position = ?, last_update = ?, warned_3d = 0, warned_4d = 0
-        WHERE id = ?
-        """,
-        (rank, now, below_id),
-    )
-
-    # QUEM CAI
-    cursor.execute(
-        """
-        UPDATE item_requests
-        SET rank_position = ?, last_update = ?, warned_3d = 0, warned_4d = 0
-        WHERE id = ?
-        """,
-        (rank + 1, now, request_id),
-    )
-
-    conn.commit()
-
+            cur.execute(
+                "UPDATE item_requests SET rank_position = %s, last_update = %s, warned_3d = FALSE, warned_4d = FALSE WHERE id = %s",
+                (rank, now, below_id),
+            )
+            cur.execute(
+                "UPDATE item_requests SET rank_position = %s, last_update = %s, warned_3d = FALSE, warned_4d = FALSE WHERE id = %s",
+                (rank + 1, now, request_id),
+            )
 
 
 def get_daily_item_summary():
-    cursor.execute(
-        """
-        SELECT
-            item_name,
-            rank_position,
-            player_name,
-            remaining_quantity,
-            thread_id
-        FROM item_requests
-        ORDER BY item_name, rank_position ASC
-        """
-    )
-    return cursor.fetchall()
+    return execute(
+        "SELECT item_name, rank_position, player_name, remaining_quantity, thread_id FROM item_requests ORDER BY item_name, rank_position ASC",
+        fetchall=True,
+    ) or []
+
 
 def get_item_request_by_thread(thread_id):
-    cursor.execute(
-        """
-        SELECT
-            id,
-            discord_id,
-            player_name,
-            item_name,
-            rank_position,
-            thread_id,
-            last_update
-        FROM item_requests
-        WHERE thread_id = ?
-        """,
+    return execute(
+        "SELECT id, discord_id, player_name, item_name, rank_position, thread_id, last_update FROM item_requests WHERE thread_id = %s",
         (thread_id,),
+        fetchone=True,
     )
-    return cursor.fetchone()
 
 
 def get_request_by_thread(thread_id: int, item_name: str):
-    cursor.execute(
-        """
-        SELECT id, discord_id, item_name, rank_position
-        FROM item_requests
-        WHERE thread_id = ? and item_name = ?
-        """,
-        (thread_id,item_name)
+    return execute(
+        "SELECT id, discord_id, item_name, rank_position FROM item_requests WHERE thread_id = %s and item_name = %s",
+        (thread_id, item_name),
+        fetchone=True,
     )
-    return cursor.fetchone()
 
 
 def get_active_request_items_by_thread(thread_id: int):
-    cursor.execute(
-        """
-        SELECT item_name
-        FROM item_requests
-        WHERE thread_id = ?
-        ORDER BY rank_position ASC
-        """,
+    rows = execute(
+        "SELECT item_name FROM item_requests WHERE thread_id = %s ORDER BY rank_position ASC",
         (thread_id,),
-    )
-    return [row[0] for row in cursor.fetchall()]
+        fetchall=True,
+    ) or []
+    return [row[0] for row in rows]
+
 
 def delete_request(request_id: int):
-    cursor.execute(
-        "DELETE FROM item_requests WHERE id = ?",
-        (request_id,)
-    )
-    conn.commit()
+    execute("DELETE FROM item_requests WHERE id = %s", (request_id,))
+
 
 def reorder_item_ranks(item_name: str):
-    cursor.execute(
-        """
-        SELECT id
-        FROM item_requests
-        WHERE item_name = ?
-        ORDER BY rank_position ASC
-        """,
-        (item_name,)
-    )
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute("SELECT id FROM item_requests WHERE item_name = %s ORDER BY rank_position ASC", (item_name,))
+            rows = cur.fetchall()
+            for index, (req_id,) in enumerate(rows, start=1):
+                cur.execute("UPDATE item_requests SET rank_position = %s WHERE id = %s", (index, req_id))
 
-    rows = cursor.fetchall()
-
-    for index, (req_id,) in enumerate(rows, start=1):
-        cursor.execute(
-            "UPDATE item_requests SET rank_position = ? WHERE id = ?",
-            (index, req_id)
-        )
-
-    conn.commit()
 
 def fix_last_update(request_id: int, ts: int):
-    cursor.execute(
-        "UPDATE item_requests SET last_update = ? WHERE id = ?",
-        (ts, request_id)
+    execute("UPDATE item_requests SET last_update = %s WHERE id = %s", (ts, request_id))
+
+
+def get_player_timezone(discord_id: int):
+    row = execute("SELECT timezone FROM players WHERE discord_id = %s", (discord_id,), fetchone=True)
+    return row[0] if row else None
+
+
+def set_player_timezone(discord_id: int, timezone: str):
+    execute("UPDATE players SET timezone = %s WHERE discord_id = %s", (timezone, discord_id))
+
+
+def add_party(message_id, channel_id, creator_id, reason_pt, reason_en, start_ts, end_ts):
+    execute(
+        """
+        INSERT INTO parties (message_id, channel_id, creator_id, reason_pt, reason_en, start_ts, end_ts)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (message_id, channel_id, creator_id, reason_pt, reason_en, start_ts, end_ts),
     )
-    conn.commit()
+
+
+
+def get_party_by_message(message_id: int):
+    return execute("SELECT * FROM parties WHERE message_id = %s", (message_id,), fetchone=True)
+
+def get_parties_by_creator(creator_id: int):
+    return execute("SELECT message_id, channel_id FROM parties WHERE creator_id = %s", (creator_id,), fetchone=True)
+
+
+def get_all_parties():
+    return execute("SELECT message_id, channel_id FROM parties", fetchall=True) or []
+
+
+def delete_party(message_id: int):
+    execute("DELETE FROM parties WHERE message_id = %s", (message_id,))
+
+
+def clear_parties():
+    execute("DELETE FROM parties")
+
+
+def cleanup_boss_participation_duplicates():
+    with transaction():
+        with get_cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM boss_participation")
+            before = cur.fetchone()[0]
+            cur.execute(
+                """
+                DELETE FROM boss_participation
+                WHERE id NOT IN (
+                    SELECT MIN(id)
+                    FROM boss_participation
+                    GROUP BY rotation_id, discord_id
+                )
+                """
+            )
+            cur.execute("SELECT COUNT(*) FROM boss_participation")
+            after = cur.fetchone()[0]
+            return before, after
