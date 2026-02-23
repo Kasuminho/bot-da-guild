@@ -50,6 +50,26 @@ Para não depender de arquivos locais no container, você pode salvar imagens ca
 Quando o provider estiver como `google_drive`, o `/cadastraritem` faz upload para o Drive e salva URL pública no banco.
 No fluxo `/anunciar`, quando os caminhos forem URLs, o tópico do fórum é criado com os links das imagens no conteúdo.
 
+
+### Migrar imagens já existentes (as que já estão na rotina)
+
+Se você já tem itens cadastrados apontando para arquivos locais (`assets/forum_items/...`), rode o script de migração:
+
+```bash
+# 1) Configure provider remoto (exemplo Google Drive)
+export IMAGE_STORAGE_PROVIDER=google_drive
+export GOOGLE_DRIVE_FOLDER_ID=seu_folder_id
+export GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
+
+# 2) Simular sem alterar banco
+python scripts/migrate_existing_images_to_remote.py --dry-run
+
+# 3) Migrar de verdade
+python scripts/migrate_existing_images_to_remote.py
+```
+
+O script faz upload das imagens locais, atualiza `forum_items.image1_path`/`image2_path` para URLs remotas e mantém os itens já remotos intactos.
+
 ## Boas práticas
 - Não comite tokens — use variáveis de ambiente.
 - Logs locais não devem ficar no repo (arquivo `bot.log` está em `.gitignore`).
