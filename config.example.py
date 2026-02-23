@@ -11,9 +11,7 @@ load_dotenv()
 # load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN", "coloque_o_token_aqui")
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "sqlite:///data.db"
-)  # ex: postgres://user:pass@host:5432/db
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # ex: postgres://user:pass@host:5432/db
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 STAFF_ROLE_ID = int(os.getenv("STAFF_ROLE_ID", "0"))
 CATEGORY_ID = int(os.getenv("CATEGORY_ID", "0"))

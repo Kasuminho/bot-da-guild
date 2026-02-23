@@ -1,33 +1,33 @@
 import discord
 from discord.ui import Select, View
 
-from db import conn, cursor
+import db
 
 TIMEZONES = [
-    ("🇺🇸 Baker Island", "Etc/GMT+12"),  # UTC-12
-    ("🇺🇸 Samoa", "Pacific/Pago_Pago"),  # UTC-11
-    ("🇺🇸 Honolulu", "Pacific/Honolulu"),  # UTC-10
-    ("🇺🇸 Anchorage", "America/Anchorage"),  # UTC-9
-    ("🇺🇸 Los Angeles", "America/Los_Angeles"),  # UTC-8
-    ("🇺🇸 Denver", "America/Denver"),  # UTC-7
-    ("🇺🇸 Chicago", "America/Chicago"),  # UTC-6
-    ("🇺🇸 New York", "America/New_York"),  # UTC-5
-    ("🇨🇦 Halifax", "America/Halifax"),  # UTC-4
-    ("🇧🇷 São Paulo", "America/Sao_Paulo"),  # UTC-3
-    ("🇧🇷 Fernando de Noronha", "America/Noronha"),  # UTC-2
-    ("🇵🇹 Azores", "Atlantic/Azores"),  # UTC-1
-    ("🇬🇧 London", "Europe/London"),  # UTC+0
-    ("🇩🇪 Berlin", "Europe/Berlin"),  # UTC+1
-    ("🇬🇷 Athens", "Europe/Athens"),  # UTC+2
-    ("🇷🇺 Moscow", "Europe/Moscow"),  # UTC+3
-    ("🇦🇪 Dubai", "Asia/Dubai"),  # UTC+4
-    ("🇵🇰 Karachi", "Asia/Karachi"),  # UTC+5
-    ("🇧🇩 Dhaka", "Asia/Dhaka"),  # UTC+6
-    ("🇹🇭 Bangkok", "Asia/Bangkok"),  # UTC+7
-    ("🇨🇳 Beijing", "Asia/Shanghai"),  # UTC+8
-    ("🇯🇵 Tokyo", "Asia/Tokyo"),  # UTC+9
-    ("🇦🇺 Sydney", "Australia/Sydney"),  # UTC+10
-    ("🇳🇿 Auckland", "Pacific/Auckland"),  # UTC+12
+    ("🇺🇸 Baker Island", "Etc/GMT+12"),
+    ("🇺🇸 Samoa", "Pacific/Pago_Pago"),
+    ("🇺🇸 Honolulu", "Pacific/Honolulu"),
+    ("🇺🇸 Anchorage", "America/Anchorage"),
+    ("🇺🇸 Los Angeles", "America/Los_Angeles"),
+    ("🇺🇸 Denver", "America/Denver"),
+    ("🇺🇸 Chicago", "America/Chicago"),
+    ("🇺🇸 New York", "America/New_York"),
+    ("🇨🇦 Halifax", "America/Halifax"),
+    ("🇧🇷 São Paulo", "America/Sao_Paulo"),
+    ("🇧🇷 Fernando de Noronha", "America/Noronha"),
+    ("🇵🇹 Azores", "Atlantic/Azores"),
+    ("🇬🇧 London", "Europe/London"),
+    ("🇩🇪 Berlin", "Europe/Berlin"),
+    ("🇬🇷 Athens", "Europe/Athens"),
+    ("🇷🇺 Moscow", "Europe/Moscow"),
+    ("🇦🇪 Dubai", "Asia/Dubai"),
+    ("🇵🇰 Karachi", "Asia/Karachi"),
+    ("🇧🇩 Dhaka", "Asia/Dhaka"),
+    ("🇹🇭 Bangkok", "Asia/Bangkok"),
+    ("🇨🇳 Beijing", "Asia/Shanghai"),
+    ("🇯🇵 Tokyo", "Asia/Tokyo"),
+    ("🇦🇺 Sydney", "Australia/Sydney"),
+    ("🇳🇿 Auckland", "Pacific/Auckland"),
 ]
 
 
@@ -35,25 +35,12 @@ class TimezoneSelect(Select):
     def __init__(self):
         super().__init__(
             placeholder="🌍 Escolha sua cidade (uma vez só)",
-            options=[
-                discord.SelectOption(label=label, value=value)
-                for label, value in TIMEZONES
-            ],
+            options=[discord.SelectOption(label=label, value=value) for label, value in TIMEZONES],
         )
 
     async def callback(self, interaction: discord.Interaction):
-        tz = self.values[0]
-
-        cursor.execute(
-            "UPDATE players SET timezone = ? WHERE discord_id = ?",
-            (tz, interaction.user.id),
-        )
-        conn.commit()
-
-        await interaction.response.send_message(
-            "✅ Cidade salva. Nunca mais pergunto 😉",
-            ephemeral=True,
-        )
+        db.set_player_timezone(interaction.user.id, self.values[0])
+        await interaction.response.send_message("✅ Cidade salva. Nunca mais pergunto 😉", ephemeral=True)
 
 
 class TimezoneView(View):
