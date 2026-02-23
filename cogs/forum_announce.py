@@ -19,6 +19,7 @@ from config import (
     EXTRAORDINARY_STAFF_WEBHOOK_URL,
     FORUM_ANNOUNCE_TEST_MODE,
 )
+from utils.image_storage import is_remote_url
 
 # ==========================================================
 # CONSTANTES
@@ -379,10 +380,22 @@ class AnnounceFlow(View):
         for item_id in self.item_ids:
             item = db.get_forum_item(item_id)
 
+            files = None
+            initial_content = f"<t:{timestamp}:F> `{tz_name}`"
+
+            if is_remote_url(item[7]) and is_remote_url(item[8]):
+                initial_content = (
+                    f"{initial_content}\n"
+                    f"📎 {item[7]}\n"
+                    f"📎 {item[8]}"
+                )
+            else:
+                files = [discord.File(item[7]), discord.File(item[8])]
+
             post = await forum.create_thread(
                 name=f"📢 Anúncio – {item[3]} / {item[4]}",
-                content=f"<t:{timestamp}:F> `{tz_name}`",
-                files=[discord.File(item[7]), discord.File(item[8])],
+                content=initial_content,
+                files=files,
                 applied_tags=[discord.Object(id=FORUM_TAG_ID)],
             )
 

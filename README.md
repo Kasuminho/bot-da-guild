@@ -25,6 +25,31 @@ Um bot para guilda (Discord). Este repositório contém o código principal e m�
    python bot.py
    ```
 
+## Armazenamento online de imagens (Google Drive)
+
+Para não depender de arquivos locais no container, você pode salvar imagens cadastradas diretamente no Drive.
+
+1. Configure o provider:
+   ```bash
+   IMAGE_STORAGE_PROVIDER=google_drive
+   ```
+2. Crie uma pasta no Google Drive e configure o ID:
+   ```bash
+   GOOGLE_DRIVE_FOLDER_ID=seu_folder_id
+   ```
+3. Configure credenciais de Service Account (um dos formatos):
+   - JSON inline em variável:
+     ```bash
+     GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON={...json...}
+     ```
+   - Ou caminho de arquivo no ambiente:
+     ```bash
+     GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE=/path/credentials.json
+     ```
+
+Quando o provider estiver como `google_drive`, o `/cadastraritem` faz upload para o Drive e salva URL pública no banco.
+No fluxo `/anunciar`, quando os caminhos forem URLs, o tópico do fórum é criado com os links das imagens no conteúdo.
+
 ## Boas práticas
 - Não comite tokens — use variáveis de ambiente.
 - Logs locais não devem ficar no repo (arquivo `bot.log` está em `.gitignore`).
