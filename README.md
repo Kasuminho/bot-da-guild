@@ -37,14 +37,18 @@ Para não depender de arquivos locais no container, você pode salvar imagens ca
    ```bash
    GOOGLE_DRIVE_FOLDER_ID=seu_folder_id
    ```
-3. Configure credenciais de Service Account (um dos formatos):
-   - JSON inline em variável:
+3. Configure credenciais para Drive (uma das opções):
+   - **Service Account** (JSON inline):
      ```bash
      GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON={...json...}
      ```
-   - Ou caminho de arquivo no ambiente:
+   - **Service Account** (arquivo):
      ```bash
      GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE=/path/credentials.json
+     ```
+   - **OAuth** (token de acesso):
+     ```bash
+     GOOGLE_DRIVE_OAUTH_ACCESS_TOKEN=ya29.a0AfH6...
      ```
 
 Quando o provider estiver como `google_drive`, o `/cadastraritem` faz upload para o Drive e salva URL pública no banco.
@@ -59,7 +63,8 @@ Se você já tem registros antigos apontando para arquivos locais (ex.: `assets/
 # 1) Configure provider remoto (exemplo Google Drive)
 export IMAGE_STORAGE_PROVIDER=google_drive
 export GOOGLE_DRIVE_FOLDER_ID=seu_folder_id
-export GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
+export GOOGLE_DRIVE_OAUTH_ACCESS_TOKEN='ya29.a0AfH6...'
+# ou use GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON
 
 # 2) Simular sem alterar banco
 python scripts/migrate_existing_images_to_remote.py --dry-run

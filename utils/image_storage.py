@@ -2,10 +2,6 @@ import json
 import os
 from functools import lru_cache
 
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-
 
 def get_image_storage_provider() -> str:
     return os.getenv("IMAGE_STORAGE_PROVIDER", "local").strip().lower()
@@ -21,27 +17,43 @@ def is_remote_url(value: str) -> bool:
     return value.startswith("http://") or value.startswith("https://")
 
 
-@lru_cache(maxsize=1)
-def _get_drive_service():
+def _load_drive_credentials():
+    from google.oauth2 import service_account
+    from google.oauth2.credentials import Credentials
+
     service_account_json = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON", "").strip()
     service_account_file = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", "").strip()
 
+    oauth_access_token = os.getenv("GOOGLE_DRIVE_OAUTH_ACCESS_TOKEN", "").strip()
+
     if service_account_json:
         info = json.loads(service_account_json)
-        credentials = service_account.Credentials.from_service_account_info(
+        return service_account.Credentials.from_service_account_info(
             info,
             scopes=["https://www.googleapis.com/auth/drive"],
         )
-    elif service_account_file:
-        credentials = service_account.Credentials.from_service_account_file(
+
+    if service_account_file:
+        return service_account.Credentials.from_service_account_file(
             service_account_file,
             scopes=["https://www.googleapis.com/auth/drive"],
         )
-    else:
-        raise RuntimeError(
-            "Google Drive configurado, mas faltou GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON ou GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE"
-        )
 
+    if oauth_access_token:
+        return Credentials(token=oauth_access_token)
+
+    raise RuntimeError(
+        "Google Drive configurado, mas faltou credencial: "
+        "GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON, GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE "
+        "ou GOOGLE_DRIVE_OAUTH_ACCESS_TOKEN"
+    )
+
+
+@lru_cache(maxsize=1)
+def _get_drive_service():
+    from googleapiclient.discovery import build
+
+    credentials = _load_drive_credentials()
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 
@@ -57,6 +69,8 @@ def upload_image(file_path: str, upload_name: str) -> str:
     folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "").strip()
     if not folder_id:
         raise RuntimeError("GOOGLE_DRIVE_FOLDER_ID não foi configurado")
+
+    from googleapiclient.http import MediaFileUpload
 
     service = _get_drive_service()
 
