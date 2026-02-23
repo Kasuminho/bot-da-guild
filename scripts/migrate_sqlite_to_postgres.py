@@ -7,6 +7,7 @@ import traceback
 from pathlib import Path
 
 import psycopg2
+from dotenv import load_dotenv
 from psycopg2 import sql
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -160,6 +161,8 @@ def adjust_sequence(pg_conn, table):
 
 
 def main():
+    load_dotenv(ROOT / ".env")
+
     parser = argparse.ArgumentParser(description="Migra dados de SQLite para PostgreSQL")
     parser.add_argument("--truncate-first", action="store_true", help="Limpa tabelas de destino antes da carga")
     parser.add_argument("--upsert", action="store_true", help="Faz UPSERT nas tabelas com chave conhecida")
@@ -175,7 +178,7 @@ def main():
     database_url = os.getenv("DATABASE_URL")
 
     if not database_url:
-        print("DATABASE_URL não definido.")
+        print("DATABASE_URL não definido. Exporte a variável ou configure-a no arquivo .env na raiz do projeto.")
         sys.exit(1)
 
     sqlite_conn = sqlite3.connect(sqlite_path)
