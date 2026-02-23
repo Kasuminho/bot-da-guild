@@ -1,4 +1,7 @@
 import logging
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import discord
 from discord.ext import commands
@@ -11,6 +14,31 @@ from logger import setup_global_logger
 # ==========================================================
 setup_global_logger()
 log = logging.getLogger("bot.commands")
+
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path in {"/", "/health", "/healthz"}:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+            return
+
+        self.send_response(404)
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        return
+
+
+def start_health_server():
+    host = os.getenv("HEALTH_HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "10000"))
+    server = ThreadingHTTPServer((host, port), HealthHandler)
+
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    log.info("Healthcheck ativo em http://%s:%s/health", host, port)
 
 # ==========================================================
 # INTENTS
@@ -142,4 +170,5 @@ async def on_ready():
 # ==========================================================
 # RUN
 # ==========================================================
+start_health_server()
 bot.run(TOKEN)

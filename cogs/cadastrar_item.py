@@ -1,4 +1,5 @@
 import os
+import tempfile
 import time
 from typing import Literal
 
@@ -8,6 +9,10 @@ from discord.ext import commands
 
 import db
 from config import STAFF_ROLE_ID
+from utils.image_storage import (
+    is_remote_storage_enabled,
+    upload_image,
+)
 
 ASSETS_DIR = "assets/forum_items"
 os.makedirs(ASSETS_DIR, exist_ok=True)
@@ -43,14 +48,23 @@ class ItemRegister(commands.Cog):
     ):
         await interaction.response.defer(ephemeral=True)
 
-        # salva imagens
         timestamp = int(time.time())
-        item_dir = os.path.join(ASSETS_DIR, str(timestamp))
-        os.makedirs(item_dir, exist_ok=True)
-        path1 = os.path.join(item_dir, "1.png")
-        path2 = os.path.join(item_dir, "2.png")
-        await image1.save(path1)
-        await image2.save(path2)
+        if is_remote_storage_enabled():
+            with tempfile.TemporaryDirectory(prefix="forum_item_") as temp_dir:
+                local_path1 = os.path.join(temp_dir, "1.png")
+                local_path2 = os.path.join(temp_dir, "2.png")
+                await image1.save(local_path1)
+                await image2.save(local_path2)
+
+                path1 = upload_image(local_path1, f"{timestamp}_1.png")
+                path2 = upload_image(local_path2, f"{timestamp}_2.png")
+        else:
+            item_dir = os.path.join(ASSETS_DIR, str(timestamp))
+            os.makedirs(item_dir, exist_ok=True)
+            path1 = os.path.join(item_dir, "1.png")
+            path2 = os.path.join(item_dir, "2.png")
+            await image1.save(path1)
+            await image2.save(path2)
 
         # cadastra no DB
         db.add_forum_item(
