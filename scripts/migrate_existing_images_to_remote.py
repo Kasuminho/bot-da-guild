@@ -12,16 +12,30 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
+
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-import db
-from utils.image_storage import get_image_storage_provider, is_remote_url, upload_image
+def get_image_storage_provider() -> str:
+    return os.getenv("IMAGE_STORAGE_PROVIDER", "local").strip().lower()
+
+
+def is_remote_url(value: str) -> bool:
+    if not value:
+        return False
+    return value.startswith("http://") or value.startswith("https://")
+
+
+def upload_image(file_path: str, upload_name: str) -> str:
+    from utils.image_storage import upload_image as upload_image_impl
+
+    return upload_image_impl(file_path, upload_name)
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,6 +53,7 @@ def normalize_local_path(raw_path: str) -> Path:
 
 def _migrate_pair(
     *,
+    db_module,
     dry_run: bool,
     label: str,
     row_id: int,
@@ -66,13 +81,13 @@ def _migrate_pair(
 
     remote_a = upload_image(str(local_a), upload_name_a)
     remote_b = upload_image(str(local_b), upload_name_b)
-    db.execute(update_sql, (remote_a, remote_b, row_id))
+    db_module.execute(update_sql, (remote_a, remote_b, row_id))
     print(f"[{label}:{row_id}] OK")
     return True, False
 
 
-def migrate_forum_items(dry_run: bool) -> tuple[int, int, int]:
-    rows = db.execute(
+def migrate_forum_items(db_module, dry_run: bool) -> tuple[int, int, int]:
+    rows = db_module.execute(
         """
         SELECT id, image1_path, image2_path
         FROM forum_items
@@ -92,6 +107,7 @@ def migrate_forum_items(dry_run: bool) -> tuple[int, int, int]:
 
         ts = int(time.time())
         processed, is_failed = _migrate_pair(
+            db_module=db_module,
             dry_run=dry_run,
             label="forum_items",
             row_id=item_id,
@@ -107,8 +123,8 @@ def migrate_forum_items(dry_run: bool) -> tuple[int, int, int]:
     return migrated_or_skipped, skipped_already_remote, failed
 
 
-def migrate_daily_announcements(dry_run: bool) -> tuple[int, int, int]:
-    rows = db.execute(
+def migrate_daily_announcements(db_module, dry_run: bool) -> tuple[int, int, int]:
+    rows = db_module.execute(
         """
         SELECT id, image_pt_path, image_en_path
         FROM daily_announcements
@@ -128,6 +144,7 @@ def migrate_daily_announcements(dry_run: bool) -> tuple[int, int, int]:
 
         ts = int(time.time())
         processed, is_failed = _migrate_pair(
+            db_module=db_module,
             dry_run=dry_run,
             label="daily_announcements",
             row_id=ann_id,
@@ -143,7 +160,39 @@ def migrate_daily_announcements(dry_run: bool) -> tuple[int, int, int]:
     return migrated_or_skipped, skipped_already_remote, failed
 
 
+
+def load_project_env() -> None:
+    env_path = ROOT_DIR / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def load_db_module():
+    try:
+        import db
+
+        return db
+    except RuntimeError as exc:
+        raise SystemExit(f"Erro ao inicializar banco: {exc}") from exc
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            f"Dependência ausente para banco de dados ({exc.name}). Instale requirements e configure DATABASE_URL."
+        ) from exc
+
+
 def main() -> None:
+    load_project_env()
     args = parse_args()
     provider = get_image_storage_provider()
     if provider == "local":
@@ -153,8 +202,10 @@ def main() -> None:
 
     print(f"Provider atual: {provider}")
 
-    fi_total, fi_skipped, fi_failed = migrate_forum_items(dry_run=args.dry_run)
-    da_total, da_skipped, da_failed = migrate_daily_announcements(dry_run=args.dry_run)
+    db_module = load_db_module()
+
+    fi_total, fi_skipped, fi_failed = migrate_forum_items(db_module, dry_run=args.dry_run)
+    da_total, da_skipped, da_failed = migrate_daily_announcements(db_module, dry_run=args.dry_run)
 
     print("\nResumo:")
     print(f"- forum_items processados: {fi_total} | já remotos: {fi_skipped} | falhas: {fi_failed}")
