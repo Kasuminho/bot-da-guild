@@ -22,6 +22,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+
 def get_image_storage_provider() -> str:
     return os.getenv("IMAGE_STORAGE_PROVIDER", "local").strip().lower()
 
@@ -34,7 +35,6 @@ def is_remote_url(value: str) -> bool:
 
 def upload_image(file_path: str, upload_name: str) -> str:
     from utils.image_storage import upload_image as upload_image_impl
-
     return upload_image_impl(file_path, upload_name)
 
 
@@ -160,7 +160,6 @@ def migrate_daily_announcements(db_module, dry_run: bool) -> tuple[int, int, int
     return migrated_or_skipped, skipped_already_remote, failed
 
 
-
 def load_project_env() -> None:
     env_path = ROOT_DIR / ".env"
     if not env_path.exists():
@@ -181,7 +180,6 @@ def load_project_env() -> None:
 def load_db_module():
     try:
         import db
-
         return db
     except RuntimeError as exc:
         raise SystemExit(f"Erro ao inicializar banco: {exc}") from exc
@@ -201,6 +199,10 @@ def main() -> None:
         )
 
     print(f"Provider atual: {provider}")
+
+    # Falhar cedo se config/credenciais estiverem erradas:
+    if provider == "google_drive":
+        from utils import image_storage  # noqa: F401
 
     db_module = load_db_module()
 
