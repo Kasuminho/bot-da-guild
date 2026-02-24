@@ -1,7 +1,9 @@
 import time
 import asyncio
+import imghdr
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -161,7 +163,7 @@ class DateTimeModal(Modal, title="Finalizar anúncio"):
             return
 
         await interaction.response.defer(ephemeral=True)
-        await self.flow.finalize(ts, interaction, self.tz_name)
+        await self.flow.finalize(ts, interaction)
 
 
 # ==========================================================
@@ -352,40 +354,69 @@ class AnnounceFlow(View):
         selected_text = "\n".join(selected_items)
         return f"{header}\n\n**Itens selecionados:**\n{selected_text}"
 
-    async def _download_remote_image_as_file(self, session: aiohttp.ClientSession, url: str, fallback_name: str):
-        try:
-            async with session.get(url, timeout=20) as response:
-                if response.status != 200:
-                    return None
-
-                content = await response.read()
-                if not content:
-                    return None
-
-                return discord.File(BytesIO(content), filename=fallback_name)
-        except (aiohttp.ClientError, asyncio.TimeoutError):
+    def _extract_google_drive_file_id(self, url: str):
+        parsed = urlparse(url)
+        host = (parsed.netloc or "").lower()
+        if "drive.google.com" not in host:
             return None
 
-    async def _build_thread_files(self, item):
-        if not (is_remote_url(item[7]) and is_remote_url(item[8])):
-            return [discord.File(item[7]), discord.File(item[8])], []
+        if "/file/d/" in parsed.path:
+            return parsed.path.split("/file/d/", 1)[1].split("/", 1)[0]
 
+        query = parse_qs(parsed.query)
+        return (query.get("id") or [None])[0]
+
+    def _candidate_download_urls(self, url: str):
+        file_id = self._extract_google_drive_file_id(url)
+        if not file_id:
+            return [url]
+
+        return [
+            f"https://drive.google.com/uc?export=download&id={file_id}",
+            f"https://drive.google.com/thumbnail?id={file_id}&sz=w2000",
+            url,
+        ]
+
+    async def _download_remote_image_as_file(self, session: aiohttp.ClientSession, url: str, fallback_name: str):
+        for candidate_url in self._candidate_download_urls(url):
+            try:
+                async with session.get(candidate_url, timeout=20) as response:
+                    if response.status != 200:
+                        continue
+
+                    content_type = (response.headers.get("Content-Type") or "").lower()
+                    content = await response.read()
+                    if not content:
+                        continue
+
+                    if not content_type.startswith("image/"):
+                        guessed = imghdr.what(None, h=content)
+                        if not guessed:
+                            continue
+
+                    return discord.File(BytesIO(content), filename=fallback_name)
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                continue
+
+        return None
+
+    async def _build_thread_files(self, item):
         async with aiohttp.ClientSession() as session:
-            remote_files = []
+            files = []
             failed_urls = []
 
             for index, url in enumerate((item[7], item[8]), start=1):
-                file = await self._download_remote_image_as_file(
-                    session,
-                    url,
-                    f"forum_items_{item[0]}_{index}.png",
-                )
+                if not is_remote_url(url):
+                    files.append(discord.File(url))
+                    continue
+
+                file = await self._download_remote_image_as_file(session, url, f"forum_items_{item[0]}_{index}.png")
                 if file:
-                    remote_files.append(file)
+                    files.append(file)
                 else:
                     failed_urls.append(url)
 
-            return remote_files, failed_urls
+            return files, failed_urls
 
     async def ask_mode(self, interaction):
         self.clear_items()
@@ -412,12 +443,12 @@ class AnnounceFlow(View):
             ephemeral=True,
         )
 
-    async def finalize(self, timestamp, interaction, tz_name):
+    async def finalize(self, timestamp, interaction):
         forum = self.guild.get_channel(FORUM_CHANNEL_ID)
         for item_id in self.item_ids:
             item = db.get_forum_item(item_id)
 
-            initial_content = f"<t:{timestamp}:F> `{tz_name}`"
+            initial_content = f"<t:{timestamp}:F>"
             create_thread_kwargs = {
                 "name": f"📢 Anúncio – {item[3]} / {item[4]}",
                 "content": initial_content,
