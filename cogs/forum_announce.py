@@ -1,4 +1,6 @@
 import time
+import asyncio
+from io import BytesIO
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
@@ -350,6 +352,41 @@ class AnnounceFlow(View):
         selected_text = "\n".join(selected_items)
         return f"{header}\n\n**Itens selecionados:**\n{selected_text}"
 
+    async def _download_remote_image_as_file(self, session: aiohttp.ClientSession, url: str, fallback_name: str):
+        try:
+            async with session.get(url, timeout=20) as response:
+                if response.status != 200:
+                    return None
+
+                content = await response.read()
+                if not content:
+                    return None
+
+                return discord.File(BytesIO(content), filename=fallback_name)
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            return None
+
+    async def _build_thread_files(self, item):
+        if not (is_remote_url(item[7]) and is_remote_url(item[8])):
+            return [discord.File(item[7]), discord.File(item[8])], []
+
+        async with aiohttp.ClientSession() as session:
+            remote_files = []
+            failed_urls = []
+
+            for index, url in enumerate((item[7], item[8]), start=1):
+                file = await self._download_remote_image_as_file(
+                    session,
+                    url,
+                    f"forum_items_{item[0]}_{index}.png",
+                )
+                if file:
+                    remote_files.append(file)
+                else:
+                    failed_urls.append(url)
+
+            return remote_files, failed_urls
+
     async def ask_mode(self, interaction):
         self.clear_items()
         select = Select(
@@ -387,18 +424,15 @@ class AnnounceFlow(View):
                 "applied_tags": [discord.Object(id=FORUM_TAG_ID)],
             }
 
-            if is_remote_url(item[7]) and is_remote_url(item[8]):
-                initial_content = (
+            files, failed_remote_urls = await self._build_thread_files(item)
+            if files:
+                create_thread_kwargs["files"] = files
+
+            if failed_remote_urls:
+                create_thread_kwargs["content"] = (
                     f"{initial_content}\n"
-                    f"📎 {item[7]}\n"
-                    f"📎 {item[8]}"
+                    + "\n".join(f"📎 {url}" for url in failed_remote_urls)
                 )
-                create_thread_kwargs["content"] = initial_content
-            else:
-                create_thread_kwargs["files"] = [
-                    discord.File(item[7]),
-                    discord.File(item[8]),
-                ]
 
             post = await forum.create_thread(**create_thread_kwargs)
 
