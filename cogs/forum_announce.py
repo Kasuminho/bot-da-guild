@@ -380,8 +380,12 @@ class AnnounceFlow(View):
         for item_id in self.item_ids:
             item = db.get_forum_item(item_id)
 
-            files = None
             initial_content = f"<t:{timestamp}:F> `{tz_name}`"
+            create_thread_kwargs = {
+                "name": f"📢 Anúncio – {item[3]} / {item[4]}",
+                "content": initial_content,
+                "applied_tags": [discord.Object(id=FORUM_TAG_ID)],
+            }
 
             if is_remote_url(item[7]) and is_remote_url(item[8]):
                 initial_content = (
@@ -389,15 +393,14 @@ class AnnounceFlow(View):
                     f"📎 {item[7]}\n"
                     f"📎 {item[8]}"
                 )
+                create_thread_kwargs["content"] = initial_content
             else:
-                files = [discord.File(item[7]), discord.File(item[8])]
+                create_thread_kwargs["files"] = [
+                    discord.File(item[7]),
+                    discord.File(item[8]),
+                ]
 
-            post = await forum.create_thread(
-                name=f"📢 Anúncio – {item[3]} / {item[4]}",
-                content=initial_content,
-                files=files,
-                applied_tags=[discord.Object(id=FORUM_TAG_ID)],
-            )
+            post = await forum.create_thread(**create_thread_kwargs)
 
             criteria = CRITERIA_TEXTS[(item[1], self.mode)]
             warning_prefix = ""
