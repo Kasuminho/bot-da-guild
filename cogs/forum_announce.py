@@ -1,6 +1,5 @@
 import time
 import asyncio
-import imghdr
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 from urllib.parse import parse_qs, urlparse
@@ -377,6 +376,18 @@ class AnnounceFlow(View):
             url,
         ]
 
+    def _looks_like_image(self, content: bytes) -> bool:
+        if content.startswith((
+            b"\x89PNG\r\n\x1a\n",
+            b"\xff\xd8\xff",
+            b"GIF87a",
+            b"GIF89a",
+            b"BM",
+        )):
+            return True
+
+        return content.startswith(b"RIFF") and len(content) >= 12 and content[8:12] == b"WEBP"
+
     async def _download_remote_image_as_file(self, session: aiohttp.ClientSession, url: str, fallback_name: str):
         for candidate_url in self._candidate_download_urls(url):
             try:
@@ -390,8 +401,7 @@ class AnnounceFlow(View):
                         continue
 
                     if not content_type.startswith("image/"):
-                        guessed = imghdr.what(None, h=content)
-                        if not guessed:
+                        if not self._looks_like_image(content):
                             continue
 
                     return discord.File(BytesIO(content), filename=fallback_name)
