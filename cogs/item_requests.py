@@ -18,6 +18,7 @@ lang = "pt"
 EXEMPT_FROM_CATEGORY_LIMIT = {
     "creature of gaiety",
     "elder dragon isteria",
+    "carnival queen"
 }
 
 

@@ -61,6 +61,11 @@ FIXED_ITEMS = {
         "en": "Elder Dragon Isteria",
         "category": "creature",
     },
+    "carnival queen":{
+        "pt": "Rainha do Carnaval",
+        "en": "Carnival Queen",
+        "category": "creature"
+    }
 }
 
 ITEM_CATEGORIES = {key: value["category"] for key, value in FIXED_ITEMS.items()}

@@ -116,7 +116,7 @@ class ItemRequestsScheduler(commands.Cog):
                 warned_4d,
             ) = req
 
-            if item_name in ("creature of gaiety", "elder dragon isteria"):
+            if item_name in ("creature of gaiety", "elder dragon isteria", "carnival queen"):
                 continue
             
             if rank_position != 1:
