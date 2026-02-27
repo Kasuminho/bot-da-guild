@@ -137,24 +137,40 @@ async def on_app_command_error(
 # ==========================================================
 # READY
 # ==========================================================
+
+COG_EXTENSIONS = [
+    "cogs.players",
+    "cogs.reminders",
+    "cogs.scheduler",
+    "cogs.forum_announce",
+    "cogs.forum_delivery",
+    "cogs.party_events",
+    "cogs.party",
+    "cogs.daily_announcement",
+    "cogs.player_progress",
+    "cogs.cadastrar_item",
+    "cogs.rotation_eligibility",
+    "cogs.item_requests",
+    "cogs.item_requests_scheduler",
+    "cogs.item_requests_admin",
+]
+
+
+async def load_cogs_once():
+    for extension in COG_EXTENSIONS:
+        if extension in bot.extensions:
+            continue
+        try:
+            await bot.load_extension(extension)
+            log.info("Cog carregada: %s", extension)
+        except commands.ExtensionError:
+            log.exception("Falha ao carregar cog: %s", extension)
+
+
 @bot.event
 async def on_ready():
     # Cogs
-    await bot.load_extension("cogs.players")
-    await bot.load_extension("cogs.reminders")
-    await bot.load_extension("cogs.scheduler")
-    await bot.load_extension("cogs.forum_announce")
-    await bot.load_extension("cogs.forum_delivery")
-    await bot.load_extension("cogs.party_events")
-    await bot.load_extension("cogs.party")
-    await bot.load_extension("cogs.daily_announcement")
-    await bot.load_extension("cogs.player_progress")
-    await bot.load_extension("cogs.cadastrar_item")
-    await bot.load_extension("cogs.rotation_eligibility")
-    await bot.load_extension("cogs.item_requests")
-    await bot.load_extension("cogs.item_requests_scheduler")
-    await bot.load_extension("cogs.item_requests_admin")
-
+    await load_cogs_once()
 
     # Fluxos temporários
     bot.pending_image_flows = {}
