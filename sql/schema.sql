@@ -135,3 +135,74 @@ CREATE INDEX IF NOT EXISTS idx_item_requests_item_rank ON item_requests(item_nam
 CREATE INDEX IF NOT EXISTS idx_item_requests_discord_id ON item_requests(discord_id);
 CREATE INDEX IF NOT EXISTS idx_boss_participation_rotation_discord ON boss_participation(rotation_id, discord_id);
 CREATE INDEX IF NOT EXISTS idx_boss_rotations_day ON boss_rotations(day);
+
+
+CREATE TABLE IF NOT EXISTS plans (
+    plan_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    price_cents INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    features_json JSONB NOT NULL,
+    is_public BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS guilds (
+    guild_id BIGINT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    plan_id TEXT REFERENCES plans(plan_id),
+    subscription_status TEXT NOT NULL DEFAULT 'free',
+    subscription_expires_at BIGINT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    config_json JSONB DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id BIGSERIAL PRIMARY KEY,
+    guild_id BIGINT NOT NULL,
+    actor_user_id BIGINT NOT NULL,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT,
+    details_json JSONB NOT NULL,
+    created_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dkp_transactions (
+    id BIGSERIAL PRIMARY KEY,
+    guild_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    amount INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    created_by_user_id BIGINT NOT NULL,
+    event_id TEXT,
+    created_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dkp_bids (
+    id BIGSERIAL PRIMARY KEY,
+    guild_id BIGINT NOT NULL,
+    channel_id BIGINT NOT NULL,
+    item_name TEXT NOT NULL,
+    min_bid INTEGER NOT NULL,
+    ends_at BIGINT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    winner_user_id BIGINT,
+    winning_bid INTEGER,
+    created_by_user_id BIGINT NOT NULL,
+    created_at BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dkp_bid_entries (
+    id BIGSERIAL PRIMARY KEY,
+    bid_id BIGINT NOT NULL REFERENCES dkp_bids(id),
+    guild_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    amount INTEGER NOT NULL,
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_guild_created_at ON audit_logs(guild_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dkp_transactions_guild_user ON dkp_transactions(guild_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_dkp_bids_guild_channel_status ON dkp_bids(guild_id, channel_id, status);

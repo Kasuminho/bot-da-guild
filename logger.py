@@ -7,7 +7,7 @@ LOG_FILE = "bot.log"
 def setup_global_logger():
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        format="ts=%(asctime)s level=%(levelname)s logger=%(name)s msg=%(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),  # CMD
             logging.FileHandler(LOG_FILE, encoding="utf-8"),

@@ -153,6 +153,8 @@ COG_EXTENSIONS = [
     "cogs.item_requests",
     "cogs.item_requests_scheduler",
     "cogs.item_requests_admin",
+    "cogs.saas_admin",
+    "cogs.dkp",
 ]
 
 
