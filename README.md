@@ -1,93 +1,83 @@
 # bot-guild
 
-Um bot para guilda (Discord). Este repositório contém o código principal e módulos.
+Discord guild bot with legacy loot flow (default), multi-tenant SaaS foundations, and optional DKP mode.
 
-## Rápido começo
+## Architecture inventory
+- Config: `config.py` and environment variables.
+- DB access: centralized in `db.py` + schema in `sql/schema.sql`.
+- Commands/cogs: `cogs/*.py`, loaded in `bot.py`.
+- Legacy loot flow: existing item request and forum delivery cogs.
 
-1. Crie um ambiente virtual:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate   # Linux / macOS
-   .venv\Scripts\activate      # Windows
-   ```
+## Refactor seams introduced
+- Service layer + repositories (`services/`, `repositories/`).
+- Config accessor (`GuildConfigService`).
+- Command routing by mode (`LootEngineRouter` + `LegacyEngine`/`DKPEngine`).
 
-2. Instale dependências:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Configure variáveis de ambiente:
-   - Exporte `DISCORD_TOKEN` e, se necessário, `DATABASE_URL`.
-   - Ou crie um `.env` com `DISCORD_TOKEN=seu_token` (não comite `.env`).
-
-4. Rode o bot:
-   ```bash
-   python bot.py
-   ```
-
-## Armazenamento online de imagens (Google Drive)
-
-Para não depender de arquivos locais no container, você pode salvar imagens cadastradas diretamente no Drive.
-
-1. Configure o provider:
-   ```bash
-   IMAGE_STORAGE_PROVIDER=google_drive
-   ```
-2. Crie uma pasta no Google Drive e configure o ID:
-   ```bash
-   GOOGLE_DRIVE_FOLDER_ID=seu_folder_id
-   ```
-3. Configure credenciais para Drive (uma das opções):
-   - **Service Account** (JSON inline):
-     ```bash
-     GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON={...json...}
-     ```
-   - **Service Account** (arquivo):
-     ```bash
-     GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE=/path/credentials.json
-     ```
-   - **OAuth** (token de acesso):
-     ```bash
-     GOOGLE_DRIVE_OAUTH_ACCESS_TOKEN=ya29.a0AfH6...
-     ```
-
-Quando o provider estiver como `google_drive`, o `/cadastraritem` faz upload para o Drive e salva URL pública no banco.
-No fluxo `/anunciar`, quando os caminhos forem URLs, o tópico do fórum é criado com os links das imagens no conteúdo.
-
-
-### Migrar imagens já existentes (as que já estão na rotina)
-
-Se você já tem registros antigos apontando para arquivos locais (ex.: `assets/forum_items/...` e `images/daily/...`), rode o script de migração:
-
+## Quick start (local)
 ```bash
-# 1) Configure provider remoto (exemplo Google Drive)
-export IMAGE_STORAGE_PROVIDER=google_drive
-export GOOGLE_DRIVE_FOLDER_ID=seu_folder_id
-export GOOGLE_DRIVE_OAUTH_ACCESS_TOKEN='ya29.a0AfH6...'
-# ou use GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON
-
-# 2) Simular sem alterar banco
-python scripts/migrate_existing_images_to_remote.py --dry-run
-
-# 3) Migrar de verdade
-python scripts/migrate_existing_images_to_remote.py
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+python bot.py
 ```
 
-O script faz upload das imagens locais e atualiza no banco:
-- `forum_items.image1_path` e `forum_items.image2_path`
-- `daily_announcements.image_pt_path` e `daily_announcements.image_en_path`
+## SaaS + multi-tenant migration
+Set `DEFAULT_GUILD_ID` for safe backfill of historical rows:
+```bash
+export DEFAULT_GUILD_ID=123456789012345678
+python scripts/migrate_to_multi_tenant.py
+```
 
-Registros que já estão com URL remota são ignorados.
+## SaaS admin commands
+- `/saas plan_view`
+- `/saas plan_set <free|pro|elite>`
+- `/saas subscription_set_status <active|trialing|canceled|past_due|free>`
+- `/saas subscription_set_expiry <ISO datetime>`
 
-## Boas práticas
-- Não comite tokens — use variáveis de ambiente.
-- Logs locais não devem ficar no repo (arquivo `bot.log` está em `.gitignore`).
-- Modularize comandos em `cogs/`.
+## DKP commands (feature-gated)
+Admin/officer:
+- `/dkp add`
+- `/dkp remove`
+- `/dkp decay`
+- `/dkp reset confirm:true`
+- `/dkp config_set`
+- `/loot mode_set <legacy|dkp>`
 
-## Desenvolvimento
-- Formatação: Black
-- Lint: Ruff
-- Pre-commit hooks recomendados para aplicar automaticamente.
+Players:
+- `/dkp balance`
+- `/dkp top`
+- `/dkp history`
 
-## Contribuição
-Abra uma issue ou PR com mudanças. Use `pre-commit` para aplicar linters/formatters antes de commitar.
+## Deploy on AWS EC2 (Docker Compose)
+1. Install Docker + Docker Compose plugin on EC2.
+2. Clone repository and enter directory.
+3. Create `.env` from `.env.example` and set secrets.
+4. Run:
+```bash
+docker compose up -d --build
+```
+5. Follow logs:
+```bash
+docker compose logs -f bot
+```
+6. Update deployment:
+```bash
+git pull
+docker compose up -d --build
+```
+
+### Backup PostgreSQL
+```bash
+docker compose exec postgres pg_dump -U bot botguild > backup.sql
+```
+
+## Verification checklist
+- [ ] Legacy commands still work with loot mode = `legacy`.
+- [ ] Data from guild A never appears in guild B (DKP balance/top/history).
+- [ ] `/saas plan_set` toggles features.
+- [ ] Feature-gated commands deny correctly on free plan.
+- [ ] `/loot mode_set dkp` enables DKP behavior only for that guild.
+- [ ] `/dkp add`, `/dkp remove`, `/dkp balance`, `/dkp top`, `/dkp history` work.
+- [ ] `/dkp decay` writes negative ledger transactions.
+- [ ] `/dkp reset confirm:true` writes reset transactions and zeroes balances.
