@@ -15,8 +15,8 @@ from repositories.saas_repository import SaaSRepository
 from services.dkp_service import DKPService
 from services.feature_service import FeatureService
 from services.guild_config_service import GuildConfigService
+from services.loot_mode_service import LootModeService, VALID_LOOT_MODES
 
-VALID_LOOT_MODES = {"legacy", "dkp"}
 VALID_DKP_CONFIG_KEYS = {"min_bid", "allow_negative", "bid_timeout", "tie_breaker"}
 
 
@@ -27,6 +27,7 @@ class DKPCog(commands.Cog):
         self.dkp_service = DKPService(DKPRepository(), self.audit_repo)
         self.feature_service = FeatureService(SaaSRepository())
         self.config_service = GuildConfigService(GuildConfigRepository(), self.audit_repo)
+        self.loot_mode_service = LootModeService(self.config_service)
 
         self.dkp_group = app_commands.Group(name="dkp", description="DKP commands")
         self.loot_group = app_commands.Group(name="loot", description="Loot mode commands")
@@ -40,6 +41,7 @@ class DKPCog(commands.Cog):
         self.dkp_group.add_command(self.history)
         self.dkp_group.add_command(self.config_set)
 
+        self.loot_group.add_command(self.mode_view)
         self.loot_group.add_command(self.mode_set)
 
         self.bot.tree.add_command(self.dkp_group)
@@ -189,6 +191,20 @@ class DKPCog(commands.Cog):
         )
         await interaction.response.send_message(f"DKP config `{normalized_key}` updated.", ephemeral=True)
 
+
+    @app_commands.command(name="mode_view", description="View current loot mode")
+    async def mode_view(self, interaction: discord.Interaction):
+        if not await self._ensure_guild(interaction):
+            return
+
+        current_mode = self.loot_mode_service.get_mode(interaction.guild.id)
+        await interaction.response.send_message(
+            "Current loot mode: "
+            f"**{current_mode}**\n"
+            "Legacy system cogs (forum_announce/forum_delivery/item_requests) remain the default flow.",
+            ephemeral=True,
+        )
+
     @app_commands.command(name="mode_set", description="Set loot mode (legacy|dkp)")
     async def mode_set(self, interaction: discord.Interaction, mode: str):
         if not await self._ensure_staff(interaction):
@@ -203,7 +219,7 @@ class DKPCog(commands.Cog):
             await interaction.response.send_message("DKP mode is not enabled on current plan.", ephemeral=True)
             return
 
-        self.config_service.set_config(interaction.guild.id, interaction.user.id, "loot_mode", normalized_mode)
+        self.loot_mode_service.set_mode(interaction.guild.id, interaction.user.id, normalized_mode)
         await interaction.response.send_message(f"Loot mode set to **{normalized_mode}**.", ephemeral=True)
 
 

@@ -13,6 +13,13 @@ Discord guild bot with legacy loot flow (default), multi-tenant SaaS foundations
 - Config accessor (`GuildConfigService`).
 - Command routing by mode (`LootEngineRouter` + `LegacyEngine`/`DKPEngine`).
 
+
+## Legacy vs DKP (important)
+- **Legacy (default):** existing cogs `forum_announce`, `forum_delivery`, `item_requests`.
+- **DKP (optional):** new DKP commands/ledger subsystem.
+- Changing `/loot mode_set` updates per-guild config only. It does **not** rewrite legacy cogs behavior automatically.
+- Use `/loot mode_view` to confirm the guild mode.
+
 ## Quick start (local)
 ```bash
 python -m venv .venv

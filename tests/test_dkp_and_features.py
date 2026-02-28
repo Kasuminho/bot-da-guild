@@ -97,3 +97,35 @@ class ServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeConfigRepo:
+    def __init__(self):
+        self.store = {}
+
+    def get(self, guild_id):
+        return dict(self.store.get(guild_id, {}))
+
+    def set(self, guild_id, key, value):
+        cfg = dict(self.store.get(guild_id, {}))
+        cfg[key] = value
+        self.store[guild_id] = cfg
+
+
+class LootModeServiceTests(unittest.TestCase):
+    def test_default_mode_is_legacy(self):
+        from services.guild_config_service import GuildConfigService
+        from services.loot_mode_service import LootModeService
+
+        config_service = GuildConfigService(FakeConfigRepo(), FakeAuditRepo())
+        mode_service = LootModeService(config_service)
+        self.assertEqual(mode_service.get_mode(1), "legacy")
+
+    def test_set_and_get_mode(self):
+        from services.guild_config_service import GuildConfigService
+        from services.loot_mode_service import LootModeService
+
+        config_service = GuildConfigService(FakeConfigRepo(), FakeAuditRepo())
+        mode_service = LootModeService(config_service)
+        mode_service.set_mode(1, 999, "dkp")
+        self.assertEqual(mode_service.get_mode(1), "dkp")
