@@ -9,6 +9,7 @@ import psycopg2
 from psycopg2 import sql
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DEFAULT_GUILD_ID = int(os.getenv("DEFAULT_GUILD_ID", "0") or "0")
 
 if not DATABASE_URL:
     raise RuntimeError(
@@ -64,6 +65,61 @@ def ensure_schema():
 
 
 ensure_schema()
+
+
+def run_bootstrap_migrations():
+    if DEFAULT_GUILD_ID <= 0:
+        return
+
+    tenant_tables = [
+        "players",
+        "one_time_reminders",
+        "boss_rotations",
+        "boss_participation",
+        "forum_posts",
+        "drops",
+        "daily_announcements",
+        "player_levels",
+        "parties",
+        "forum_items",
+        "item_requests",
+        "item_request_logs",
+    ]
+
+    for table in tenant_tables:
+        execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS guild_id BIGINT")
+        execute(f"UPDATE {table} SET guild_id = %s WHERE guild_id IS NULL", (DEFAULT_GUILD_ID,))
+
+    execute("CREATE INDEX IF NOT EXISTS idx_players_guild_discord ON players(guild_id, discord_id)")
+    execute("CREATE INDEX IF NOT EXISTS idx_item_requests_guild_thread ON item_requests(guild_id, thread_id)")
+    execute("CREATE INDEX IF NOT EXISTS idx_drops_guild_discord ON drops(guild_id, discord_id)")
+
+    execute(
+        """
+        INSERT INTO plans (plan_id, name, price_cents, currency, features_json, is_public)
+        VALUES
+        ('free', 'Free', 0, 'USD',
+         '{"dkp_enabled": false, "dkp_decay": false, "audit_logs": true, "advanced_reports": false}'::jsonb, true),
+        ('pro', 'Pro', 999, 'USD',
+         '{"dkp_enabled": true, "dkp_decay": true, "audit_logs": true, "advanced_reports": false}'::jsonb, true),
+        ('elite', 'Elite', 2499, 'USD',
+         '{"dkp_enabled": true, "dkp_decay": true, "audit_logs": true, "advanced_reports": true}'::jsonb, true)
+        ON CONFLICT(plan_id) DO NOTHING
+        """
+    )
+
+    execute(
+        """
+        INSERT INTO guilds (guild_id, name, created_at, updated_at, plan_id, subscription_status, is_active, config_json)
+        VALUES (%s, %s, EXTRACT(EPOCH FROM NOW())::BIGINT, EXTRACT(EPOCH FROM NOW())::BIGINT,
+                COALESCE(NULLIF(%s, ''), 'pro'), 'active', TRUE, '{"loot_mode": "legacy"}'::jsonb)
+        ON CONFLICT(guild_id) DO NOTHING
+        """,
+        (DEFAULT_GUILD_ID, f"Guild {DEFAULT_GUILD_ID}", os.getenv("SAAS_DEFAULT_PLAN", "pro")),
+    )
+
+
+run_bootstrap_migrations()
 
 
 def add_player(discord_id, nickname, language, channel_id):
