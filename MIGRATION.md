@@ -1,7 +1,11 @@
-# Migração SQLite -> PostgreSQL
+# Migração entre PostgreSQL e SQLite
 
 ## Visão geral
-Este projeto passou a usar **PostgreSQL via `psycopg2-binary`** como backend padrão. O bot depende de `DATABASE_URL`; se não estiver definido, ele falha no startup com mensagem clara.
+O projeto agora aceita **PostgreSQL** e **SQLite**.
+
+- Se `DATABASE_URL` apontar para `postgres://` ou `postgresql://`, o bot usa PostgreSQL.
+- Se `DATABASE_URL` estiver vazio, o bot usa SQLite automaticamente em `SQLITE_PATH` (padrão: `./database.db`).
+- Para períodos temporários de 60-90 dias, SQLite reduz custo e simplifica backup/restore, com a troca de menor concorrência e menos robustez para múltiplas instâncias.
 
 ## Inventário do schema legado (SQLite)
 Tabelas encontradas no `db.py` original:
@@ -57,3 +61,22 @@ Tabelas encontradas no `db.py` original:
 - [ ] Contagens SQLite/Postgres conferem no bloco `[VALIDAÇÃO]`.
 - [ ] Bot inicia sem erro de schema.
 - [ ] Comandos críticos (`/registrar`, reminders, forum, requests, party) funcionam.
+
+
+## Volta temporária: PostgreSQL -> SQLite
+1. Faça um backup do PostgreSQL atual.
+2. Defina no `.env` a `DATABASE_URL` atual do Postgres.
+3. Opcionalmente defina `SQLITE_PATH=./database.sqlite3`.
+4. Rode a exportação:
+   ```bash
+   python scripts/migrate_postgres_to_sqlite.py --truncate-first
+   ```
+5. Para subir o bot já em SQLite, deixe `DATABASE_URL=` vazio e mantenha `SQLITE_PATH` apontando para o arquivo exportado.
+
+## Roteiro recomendado de corte
+1. Coloque o bot em manutenção curta.
+2. Rode o script `migrate_postgres_to_sqlite.py --truncate-first`.
+3. Valide contagens no bloco `[VALIDAÇÃO]`.
+4. Troque o `.env` para `DATABASE_URL=` vazio.
+5. Suba o bot e valide comandos críticos.
+6. Guarde o dump/backup do Postgres por pelo menos 30 dias.

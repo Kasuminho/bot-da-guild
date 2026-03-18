@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import db
 
 
@@ -8,9 +10,9 @@ class DKPRepository:
         db.execute(
             """
             INSERT INTO dkp_transactions (guild_id, user_id, amount, reason, created_by_user_id, event_id, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, EXTRACT(EPOCH FROM NOW())::BIGINT)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
-            (guild_id, user_id, amount, reason, created_by_user_id, event_id),
+            (guild_id, user_id, amount, reason, created_by_user_id, event_id, int(time.time())),
         )
 
     def get_balance(self, guild_id: int, user_id: int) -> int:

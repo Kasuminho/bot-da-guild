@@ -1,25 +1,47 @@
+import json
 import os
+import re
+import sqlite3
 import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-import psycopg2
-from psycopg2 import sql
-
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DEFAULT_GUILD_ID = int(os.getenv("DEFAULT_GUILD_ID", "0") or "0")
+SQLITE_PATH = os.getenv("SQLITE_PATH", "").strip()
+ROOT = Path(__file__).resolve().parent
+DEFAULT_SQLITE_PATH = ROOT / "database.db"
 
-if not DATABASE_URL:
+if DATABASE_URL and not DATABASE_URL.startswith(("postgres://", "postgresql://", "sqlite:///")):
     raise RuntimeError(
-        "DATABASE_URL não definido. Configure uma URL PostgreSQL válida para iniciar o bot."
+        "DATABASE_URL inválido. Use postgres://, postgresql://, sqlite:///caminho/ou/deixe vazio para SQLite local."
     )
 
-conn = psycopg2.connect(DATABASE_URL)
-conn.autocommit = False
+IS_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+IS_SQLITE = not IS_POSTGRES
 
-SCHEMA_PATH = Path(__file__).resolve().parent / "sql" / "schema.sql"
+if IS_SQLITE:
+    sqlite_target = SQLITE_PATH or str(DEFAULT_SQLITE_PATH)
+    if DATABASE_URL.startswith("sqlite:///"):
+        sqlite_target = DATABASE_URL.removeprefix("sqlite:///")
+    conn = sqlite3.connect(sqlite_target)
+    conn.execute("PRAGMA foreign_keys = ON")
+else:
+    import psycopg2
+
+    conn = psycopg2.connect(DATABASE_URL)
+
+if IS_POSTGRES:
+    conn.autocommit = False
+
+POSTGRES_SCHEMA_PATH = ROOT / "sql" / "schema.sql"
+SQLITE_SCHEMA_PATH = ROOT / "sql" / "schema_sqlite.sql"
+SCHEMA_PATH = POSTGRES_SCHEMA_PATH if IS_POSTGRES else SQLITE_SCHEMA_PATH
+
+SQLITE_EPOCH_PATTERN = re.compile(r"EXTRACT\(EPOCH FROM NOW\(\)\)::BIGINT", re.IGNORECASE)
+SQLITE_JSON_CAST_PATTERN = re.compile(r"::jsonb", re.IGNORECASE)
 
 
 @contextmanager
@@ -41,6 +63,15 @@ def transaction():
         raise
 
 
+def adapt_query(query: str) -> str:
+    if not IS_SQLITE:
+        return query
+
+    normalized = SQLITE_EPOCH_PATTERN.sub("CAST(strftime('%s', 'now') AS INTEGER)", query)
+    normalized = SQLITE_JSON_CAST_PATTERN.sub("", normalized)
+    return normalized.replace("%s", "?")
+
+
 def execute(
     query: str,
     params: Optional[Iterable[Any]] = None,
@@ -49,7 +80,7 @@ def execute(
 ):
     with transaction():
         with get_cursor() as cur:
-            cur.execute(query, tuple(params or ()))
+            cur.execute(adapt_query(query), tuple(params or ()))
             if fetchone:
                 return cur.fetchone()
             if fetchall:
@@ -61,7 +92,47 @@ def ensure_schema():
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     with transaction():
         with get_cursor() as cur:
-            cur.execute(schema_sql)
+            cur.executescript(schema_sql) if IS_SQLITE else cur.execute(schema_sql)
+
+
+def column_exists(table: str, column: str) -> bool:
+    if IS_SQLITE:
+        rows = execute(f"PRAGMA table_info({table})", fetchall=True) or []
+        return any(row[1] == column for row in rows)
+
+    row = execute(
+        """
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = %s AND column_name = %s
+        LIMIT 1
+        """,
+        (table, column),
+        fetchone=True,
+    )
+    return row is not None
+
+
+TENANT_TABLES = [
+    "players",
+    "one_time_reminders",
+    "boss_rotations",
+    "boss_participation",
+    "forum_posts",
+    "drops",
+    "daily_announcements",
+    "player_levels",
+    "parties",
+    "forum_items",
+    "item_requests",
+    "item_request_logs",
+]
+
+
+def ensure_tenant_column(table: str):
+    if column_exists(table, "guild_id"):
+        return
+    execute(f"ALTER TABLE {table} ADD COLUMN guild_id BIGINT")
 
 
 ensure_schema()
@@ -71,51 +142,66 @@ def run_bootstrap_migrations():
     if DEFAULT_GUILD_ID <= 0:
         return
 
-    tenant_tables = [
-        "players",
-        "one_time_reminders",
-        "boss_rotations",
-        "boss_participation",
-        "forum_posts",
-        "drops",
-        "daily_announcements",
-        "player_levels",
-        "parties",
-        "forum_items",
-        "item_requests",
-        "item_request_logs",
-    ]
-
-    for table in tenant_tables:
-        execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS guild_id BIGINT")
-        execute(f"UPDATE {table} SET guild_id = %s WHERE guild_id IS NULL", (DEFAULT_GUILD_ID,))
+    for table in TENANT_TABLES:
+        ensure_tenant_column(table)
+        execute("UPDATE {} SET guild_id = %s WHERE guild_id IS NULL".format(table), (DEFAULT_GUILD_ID,))
 
     execute("CREATE INDEX IF NOT EXISTS idx_players_guild_discord ON players(guild_id, discord_id)")
     execute("CREATE INDEX IF NOT EXISTS idx_item_requests_guild_thread ON item_requests(guild_id, thread_id)")
     execute("CREATE INDEX IF NOT EXISTS idx_drops_guild_discord ON drops(guild_id, discord_id)")
 
-    execute(
-        """
-        INSERT INTO plans (plan_id, name, price_cents, currency, features_json, is_public)
-        VALUES
-        ('free', 'Free', 0, 'USD',
-         '{"dkp_enabled": false, "dkp_decay": false, "audit_logs": true, "advanced_reports": false}'::jsonb, true),
-        ('pro', 'Pro', 999, 'USD',
-         '{"dkp_enabled": true, "dkp_decay": true, "audit_logs": true, "advanced_reports": false}'::jsonb, true),
-        ('elite', 'Elite', 2499, 'USD',
-         '{"dkp_enabled": true, "dkp_decay": true, "audit_logs": true, "advanced_reports": true}'::jsonb, true)
-        ON CONFLICT(plan_id) DO NOTHING
-        """
+    free_features = json.dumps(
+        {
+            "dkp_enabled": False,
+            "dkp_decay": False,
+            "audit_logs": True,
+            "advanced_reports": False,
+        }
+    )
+    pro_features = json.dumps(
+        {
+            "dkp_enabled": True,
+            "dkp_decay": True,
+            "audit_logs": True,
+            "advanced_reports": False,
+        }
+    )
+    elite_features = json.dumps(
+        {
+            "dkp_enabled": True,
+            "dkp_decay": True,
+            "audit_logs": True,
+            "advanced_reports": True,
+        }
     )
 
     execute(
         """
+        INSERT INTO plans (plan_id, name, price_cents, currency, features_json, is_public)
+        VALUES
+        ('free', 'Free', 0, 'USD', %s, TRUE),
+        ('pro', 'Pro', 999, 'USD', %s, TRUE),
+        ('elite', 'Elite', 2499, 'USD', %s, TRUE)
+        ON CONFLICT(plan_id) DO NOTHING
+        """,
+        (free_features, pro_features, elite_features),
+    )
+
+    now_epoch = int(time.time())
+    execute(
+        """
         INSERT INTO guilds (guild_id, name, created_at, updated_at, plan_id, subscription_status, is_active, config_json)
-        VALUES (%s, %s, EXTRACT(EPOCH FROM NOW())::BIGINT, EXTRACT(EPOCH FROM NOW())::BIGINT,
-                COALESCE(NULLIF(%s, ''), 'pro'), 'active', TRUE, '{"loot_mode": "legacy"}'::jsonb)
+        VALUES (%s, %s, %s, %s, COALESCE(NULLIF(%s, ''), 'pro'), 'active', TRUE, %s)
         ON CONFLICT(guild_id) DO NOTHING
         """,
-        (DEFAULT_GUILD_ID, f"Guild {DEFAULT_GUILD_ID}", os.getenv("SAAS_DEFAULT_PLAN", "pro")),
+        (
+            DEFAULT_GUILD_ID,
+            f"Guild {DEFAULT_GUILD_ID}",
+            now_epoch,
+            now_epoch,
+            os.getenv("SAAS_DEFAULT_PLAN", "pro"),
+            json.dumps({"loot_mode": "legacy"}),
+        ),
     )
 
 
@@ -187,14 +273,7 @@ def mark_warned(reminder_id, field):
     if field not in ALLOWED_REMINDER_WARN_FIELDS:
         raise ValueError(f"Campo inválido para reminder: {field}")
 
-    with transaction():
-        with get_cursor() as cur:
-            cur.execute(
-                sql.SQL("UPDATE one_time_reminders SET {}=TRUE WHERE id=%s").format(
-                    sql.Identifier(field)
-                ),
-                (reminder_id,),
-            )
+    execute(f'UPDATE one_time_reminders SET "{field}"=TRUE WHERE id=%s', (reminder_id,))
 
 
 def set_warned_daily_day(reminder_id: int, day_key: int):
@@ -420,12 +499,14 @@ def add_forum_item(kind, category, item_pt, item_en, type_pt, type_en, image1_pa
     with transaction():
         with get_cursor() as cur:
             cur.execute(
-                """
-                INSERT INTO forum_items (
-                    kind, category, item_pt, item_en, type_pt, type_en, image1_path, image2_path, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-                """,
+                adapt_query(
+                    """
+                    INSERT INTO forum_items (
+                        kind, category, item_pt, item_en, type_pt, type_en, image1_path, image2_path, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """
+                ),
                 (kind, category, item_pt, item_en, type_pt, type_en, image1_path, image2_path, now),
             )
             return cur.fetchone()[0]
@@ -480,14 +561,16 @@ def add_rotation(rotation_type: str, day: int):
     with transaction():
         with get_cursor() as cur:
             cur.execute(
-                """
-                INSERT INTO boss_rotations (rotation_type, day, created_at)
-                VALUES (%s, %s, %s)
-                ON CONFLICT(rotation_type, day) DO NOTHING
-                """,
+                adapt_query(
+                    """
+                    INSERT INTO boss_rotations (rotation_type, day, created_at)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT(rotation_type, day) DO NOTHING
+                    """
+                ),
                 (rotation_type, day, int(time.time())),
             )
-            cur.execute("SELECT id FROM boss_rotations WHERE rotation_type = %s AND day = %s", (rotation_type, day))
+            cur.execute(adapt_query("SELECT id FROM boss_rotations WHERE rotation_type = %s AND day = %s"), (rotation_type, day))
             return cur.fetchone()[0]
 
 
@@ -523,11 +606,13 @@ def add_participation(rotation_id: int, discord_id: int) -> bool:
     with transaction():
         with get_cursor() as cur:
             cur.execute(
-                """
-                INSERT INTO boss_participation (rotation_id, discord_id, present)
-                VALUES (%s, %s, TRUE)
-                ON CONFLICT(rotation_id, discord_id) DO NOTHING
-                """,
+                adapt_query(
+                    """
+                    INSERT INTO boss_participation (rotation_id, discord_id, present)
+                    VALUES (%s, %s, TRUE)
+                    ON CONFLICT(rotation_id, discord_id) DO NOTHING
+                    """
+                ),
                 (rotation_id, discord_id),
             )
             return cur.rowcount > 0
@@ -586,34 +671,38 @@ def add_item_request(discord_id, player_name, item_name, quantity, thread_id, th
     with transaction():
         with get_cursor() as cur:
             cur.execute(
-                "SELECT id FROM item_requests WHERE discord_id = %s AND item_name = %s",
+                adapt_query("SELECT id FROM item_requests WHERE discord_id = %s AND item_name = %s"),
                 (discord_id, item_name),
             )
             existing = cur.fetchone()
             if existing:
                 cur.execute(
-                    """
-                    UPDATE item_requests
-                    SET total_quantity = %s, remaining_quantity = %s, last_update = %s,
-                        warned_3d = FALSE, warned_4d = FALSE
-                    WHERE id = %s
-                    """,
+                    adapt_query(
+                        """
+                        UPDATE item_requests
+                        SET total_quantity = %s, remaining_quantity = %s, last_update = %s,
+                            warned_3d = FALSE, warned_4d = FALSE
+                        WHERE id = %s
+                        """
+                    ),
                     (quantity, quantity, now, existing[0]),
                 )
                 return
 
             cur.execute(
-                "SELECT COALESCE(MAX(rank_position), 0) FROM item_requests WHERE item_name = %s",
+                adapt_query("SELECT COALESCE(MAX(rank_position), 0) FROM item_requests WHERE item_name = %s"),
                 (item_name,),
             )
             rank = cur.fetchone()[0] + 1
             cur.execute(
-                """
-                INSERT INTO item_requests (
-                    discord_id, player_name, item_name, total_quantity, remaining_quantity,
-                    rank_position, thread_id, thread_channel_id, created_at, last_update
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
+                adapt_query(
+                    """
+                    INSERT INTO item_requests (
+                        discord_id, player_name, item_name, total_quantity, remaining_quantity,
+                        rank_position, thread_id, thread_channel_id, created_at, last_update
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                ),
                 (discord_id, player_name, item_name, quantity, quantity, rank, thread_id, thread_channel_id, now, now),
             )
 
@@ -628,7 +717,7 @@ def update_item_request_by_thread(thread_id):
     with transaction():
         with get_cursor() as cur:
             cur.execute(
-                "UPDATE item_requests SET last_update = %s, warned_3d = FALSE, warned_4d = FALSE WHERE thread_id = %s",
+                adapt_query("UPDATE item_requests SET last_update = %s, warned_3d = FALSE, warned_4d = FALSE WHERE thread_id = %s"),
                 (now, thread_id),
             )
             return cur.rowcount > 0
@@ -639,7 +728,7 @@ def deliver_item_by_thread(thread_id, item_key, quantity):
     with transaction():
         with get_cursor() as cur:
             cur.execute(
-                "SELECT id, item_name, remaining_quantity, rank_position FROM item_requests WHERE thread_id = %s AND item_name = %s",
+                adapt_query("SELECT id, item_name, remaining_quantity, rank_position FROM item_requests WHERE thread_id = %s AND item_name = %s"),
                 (thread_id, item_key),
             )
             row = cur.fetchone()
@@ -650,16 +739,16 @@ def deliver_item_by_thread(thread_id, item_key, quantity):
             new_remaining = remaining - quantity
 
             if new_remaining > 0:
-                cur.execute("UPDATE item_requests SET remaining_quantity = %s WHERE id = %s", (new_remaining, request_id))
+                cur.execute(adapt_query("UPDATE item_requests SET remaining_quantity = %s WHERE id = %s"), (new_remaining, request_id))
             else:
-                cur.execute("DELETE FROM item_requests WHERE id = %s", (request_id,))
+                cur.execute(adapt_query("DELETE FROM item_requests WHERE id = %s"), (request_id,))
                 cur.execute(
-                    "UPDATE item_requests SET rank_position = rank_position - 1 WHERE item_name = %s AND rank_position > %s",
+                    adapt_query("UPDATE item_requests SET rank_position = rank_position - 1 WHERE item_name = %s AND rank_position > %s"),
                     (item_name, rank),
                 )
 
             cur.execute(
-                "INSERT INTO item_request_logs (request_id, action, info, thread_id, created_at) VALUES (%s, 'delivered', %s, %s, %s)",
+                adapt_query("INSERT INTO item_request_logs (request_id, action, info, thread_id, created_at) VALUES (%s, 'delivered', %s, %s, %s)"),
                 (request_id, f"qty={quantity}", thread_id, now),
             )
             return True
@@ -684,36 +773,31 @@ def mark_request_warned(request_id, field):
     if field not in ALLOWED_REQUEST_WARN_FIELDS:
         raise ValueError(f"Campo inválido para item request: {field}")
 
-    with transaction():
-        with get_cursor() as cur:
-            cur.execute(
-                sql.SQL("UPDATE item_requests SET {} = TRUE WHERE id = %s").format(sql.Identifier(field)),
-                (request_id,),
-            )
+    execute(f'UPDATE item_requests SET "{field}" = TRUE WHERE id = %s', (request_id,))
 
 
 def drop_request_rank(request_id):
     now = int(time.time())
     with transaction():
         with get_cursor() as cur:
-            cur.execute("SELECT item_name, rank_position FROM item_requests WHERE id = %s", (request_id,))
+            cur.execute(adapt_query("SELECT item_name, rank_position FROM item_requests WHERE id = %s"), (request_id,))
             row = cur.fetchone()
             if not row:
                 return
             item_name, rank = row
 
-            cur.execute("SELECT id FROM item_requests WHERE item_name = %s AND rank_position = %s", (item_name, rank + 1))
+            cur.execute(adapt_query("SELECT id FROM item_requests WHERE item_name = %s AND rank_position = %s"), (item_name, rank + 1))
             below = cur.fetchone()
             if not below:
                 return
             below_id = below[0]
 
             cur.execute(
-                "UPDATE item_requests SET rank_position = %s, last_update = %s, warned_3d = FALSE, warned_4d = FALSE WHERE id = %s",
+                adapt_query("UPDATE item_requests SET rank_position = %s, last_update = %s, warned_3d = FALSE, warned_4d = FALSE WHERE id = %s"),
                 (rank, now, below_id),
             )
             cur.execute(
-                "UPDATE item_requests SET rank_position = %s, last_update = %s, warned_3d = FALSE, warned_4d = FALSE WHERE id = %s",
+                adapt_query("UPDATE item_requests SET rank_position = %s, last_update = %s, warned_3d = FALSE, warned_4d = FALSE WHERE id = %s"),
                 (rank + 1, now, request_id),
             )
 
@@ -757,10 +841,10 @@ def delete_request(request_id: int):
 def reorder_item_ranks(item_name: str):
     with transaction():
         with get_cursor() as cur:
-            cur.execute("SELECT id FROM item_requests WHERE item_name = %s ORDER BY rank_position ASC", (item_name,))
+            cur.execute(adapt_query("SELECT id FROM item_requests WHERE item_name = %s ORDER BY rank_position ASC"), (item_name,))
             rows = cur.fetchall()
             for index, (req_id,) in enumerate(rows, start=1):
-                cur.execute("UPDATE item_requests SET rank_position = %s WHERE id = %s", (index, req_id))
+                cur.execute(adapt_query("UPDATE item_requests SET rank_position = %s WHERE id = %s"), (index, req_id))
 
 
 def fix_last_update(request_id: int, ts: int):
@@ -786,9 +870,9 @@ def add_party(message_id, channel_id, creator_id, reason_pt, reason_en, start_ts
     )
 
 
-
 def get_party_by_message(message_id: int):
     return execute("SELECT * FROM parties WHERE message_id = %s", (message_id,), fetchone=True)
+
 
 def get_parties_by_creator(creator_id: int):
     return execute("SELECT message_id, channel_id FROM parties WHERE creator_id = %s", (creator_id,), fetchone=True)

@@ -29,6 +29,15 @@ cp .env.example .env
 python bot.py
 ```
 
+### SQLite temporário (mais barato)
+- Se `DATABASE_URL` estiver vazio, o bot sobe com SQLite automaticamente.
+- O arquivo padrão passa a ser `./database.db`, mas você pode apontar outro caminho via `SQLITE_PATH`.
+- Para uma VPS/EC2 simples, faça backup copiando o arquivo `.db` antes de cada deploy.
+
+```bash
+cp database.db backups/database-$(date +%F).db
+```
+
 ## SaaS + multi-tenant migration
 Set `DEFAULT_GUILD_ID` for safe backfill of historical rows:
 ```bash
@@ -60,23 +69,34 @@ Players:
 1. Install Docker + Docker Compose plugin on EC2.
 2. Clone repository and enter directory.
 3. Create `.env` from `.env.example` and set secrets.
-4. Run:
+4. If using SQLite, leave `DATABASE_URL=` empty and keep `SQLITE_PATH=./database.db`.
+5. Run:
 ```bash
-docker compose up -d --build
+docker compose up -d --build bot
 ```
-5. Follow logs:
+
+If you still want PostgreSQL locally, start the profile explicitly:
+```bash
+docker compose --profile postgres up -d --build
+```
+6. Follow logs:
 ```bash
 docker compose logs -f bot
 ```
-6. Update deployment:
+7. Update deployment:
 ```bash
 git pull
-docker compose up -d --build
+docker compose up -d --build bot
 ```
 
 ### Backup PostgreSQL
 ```bash
 docker compose exec postgres pg_dump -U bot botguild > backup.sql
+```
+
+### Backup SQLite
+```bash
+cp database.db backup-$(date +%F).db
 ```
 
 ## Verification checklist

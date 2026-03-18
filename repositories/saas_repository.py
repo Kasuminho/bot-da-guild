@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import db
@@ -7,14 +8,15 @@ import db
 
 class SaaSRepository:
     def upsert_guild(self, guild_id: int, name: str) -> None:
+        now_epoch = int(time.time())
         db.execute(
             """
             INSERT INTO guilds (guild_id, name, subscription_status, is_active, created_at, updated_at)
-            VALUES (%s, %s, 'free', TRUE, EXTRACT(EPOCH FROM NOW())::BIGINT, EXTRACT(EPOCH FROM NOW())::BIGINT)
+            VALUES (%s, %s, 'free', TRUE, %s, %s)
             ON CONFLICT(guild_id)
-            DO UPDATE SET name = EXCLUDED.name, updated_at = EXTRACT(EPOCH FROM NOW())::BIGINT
+            DO UPDATE SET name = EXCLUDED.name, updated_at = EXCLUDED.updated_at
             """,
-            (guild_id, name),
+            (guild_id, name, now_epoch, now_epoch),
         )
 
     def get_guild(self, guild_id: int) -> tuple[Any, ...] | None:
@@ -22,20 +24,20 @@ class SaaSRepository:
 
     def set_plan(self, guild_id: int, plan_id: str) -> None:
         db.execute(
-            "UPDATE guilds SET plan_id = %s, updated_at = EXTRACT(EPOCH FROM NOW())::BIGINT WHERE guild_id = %s",
-            (plan_id, guild_id),
+            "UPDATE guilds SET plan_id = %s, updated_at = %s WHERE guild_id = %s",
+            (plan_id, int(time.time()), guild_id),
         )
 
     def set_subscription_status(self, guild_id: int, status: str) -> None:
         db.execute(
-            "UPDATE guilds SET subscription_status = %s, updated_at = EXTRACT(EPOCH FROM NOW())::BIGINT WHERE guild_id = %s",
-            (status, guild_id),
+            "UPDATE guilds SET subscription_status = %s, updated_at = %s WHERE guild_id = %s",
+            (status, int(time.time()), guild_id),
         )
 
     def set_subscription_expiry(self, guild_id: int, expiry_epoch: int) -> None:
         db.execute(
-            "UPDATE guilds SET subscription_expires_at = %s, updated_at = EXTRACT(EPOCH FROM NOW())::BIGINT WHERE guild_id = %s",
-            (expiry_epoch, guild_id),
+            "UPDATE guilds SET subscription_expires_at = %s, updated_at = %s WHERE guild_id = %s",
+            (expiry_epoch, int(time.time()), guild_id),
         )
 
     def get_plan(self, plan_id: str) -> tuple[Any, ...] | None:
