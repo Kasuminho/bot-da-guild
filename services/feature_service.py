@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -40,7 +41,14 @@ class FeatureService:
         _, _, plan_id, status, expires_at, is_active, _ = guild_row
         resolved_plan_id = str(plan_id or "free")
         plan_row = self.saas_repo.get_plan(resolved_plan_id)
-        features = dict(plan_row[4]) if plan_row and isinstance(plan_row[4], dict) else {}
+        features_payload = plan_row[4] if plan_row else {}
+
+        if isinstance(features_payload, str):
+            features = json.loads(features_payload)
+        elif isinstance(features_payload, dict):
+            features = dict(features_payload)
+        else:
+            features = {}
 
         return PlanInfo(
             plan_id=resolved_plan_id,

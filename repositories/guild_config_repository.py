@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import db
@@ -30,6 +31,6 @@ class GuildConfigRepository:
         current = self.get(guild_id)
         current[key] = value
         db.execute(
-            "UPDATE guilds SET config_json = %s::jsonb, updated_at = EXTRACT(EPOCH FROM NOW())::BIGINT WHERE guild_id = %s",
-            (json.dumps(current), guild_id),
+            "UPDATE guilds SET config_json = %s, updated_at = %s WHERE guild_id = %s",
+            (json.dumps(current), int(time.time()), guild_id),
         )
