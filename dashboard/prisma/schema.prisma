@@ -1,0 +1,146 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  user
+}
+
+enum CommandStatus {
+  pending
+  success
+  error
+}
+
+model DashboardUser {
+  id        String   @id @default(cuid())
+  discordId BigInt   @unique @map("discord_id")
+  username  String
+  avatar    String?
+  role      UserRole @default(user)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  commands  DashboardCommand[]
+
+  @@map("dashboard_users")
+}
+
+model DashboardCommand {
+  id           String        @id @default(cuid())
+  executedById String        @map("executed_by_id")
+  targetUserId BigInt?       @map("target_user_id")
+  command      String
+  status       CommandStatus @default(pending)
+  result       String?
+  createdAt    DateTime      @default(now()) @map("created_at")
+  executor     DashboardUser @relation(fields: [executedById], references: [id], onDelete: Cascade)
+
+  @@index([executedById, createdAt])
+  @@map("dashboard_commands")
+}
+
+model Player {
+  id             Int     @id @default(autoincrement())
+  discordId      BigInt? @unique @map("discord_id")
+  nicknameIngame String? @map("nickname_ingame")
+  language       String?
+  channelId      BigInt? @map("channel_id")
+  timezone       String?
+
+  @@map("players")
+}
+
+model Drop {
+  id             Int     @id @default(autoincrement())
+  discordId      BigInt? @map("discord_id")
+  nicknameIngame String? @map("nickname_ingame")
+  item           String?
+  threadId       BigInt? @map("thread_id")
+  staffId        BigInt? @map("staff_id")
+  deliveredAt    Int?    @map("delivered_at")
+
+  @@index([discordId])
+  @@map("drops")
+}
+
+model ItemRequest {
+  id                Int      @id @default(autoincrement())
+  discordId         BigInt   @map("discord_id")
+  playerName        String   @map("player_name")
+  itemName          String   @map("item_name")
+  totalQuantity     Int      @map("total_quantity")
+  remainingQuantity Int      @map("remaining_quantity")
+  rankPosition      Int      @map("rank_position")
+  threadId          BigInt   @map("thread_id")
+  threadChannelId   BigInt   @map("thread_channel_id")
+  createdAt         Int      @map("created_at")
+  lastUpdate        Int      @map("last_update")
+  warned3d          Boolean? @map("warned_3d")
+  warned4d          Boolean? @map("warned_4d")
+  requestLogs       ItemRequestLog[]
+
+  @@index([discordId])
+  @@index([itemName, rankPosition])
+  @@map("item_requests")
+}
+
+model ItemRequestLog {
+  id        Int         @id @default(autoincrement())
+  requestId Int         @map("request_id")
+  action    String
+  info      String?
+  threadId  BigInt?     @map("thread_id")
+  createdAt Int         @map("created_at")
+  request   ItemRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@map("item_request_logs")
+}
+
+model AuditLog {
+  id          Int    @id @default(autoincrement())
+  guildId     BigInt @map("guild_id")
+  actorUserId BigInt @map("actor_user_id")
+  action      String
+  entityType  String @map("entity_type")
+  entityId    String? @map("entity_id")
+  detailsJson String @map("details_json")
+  createdAt   Int    @map("created_at")
+
+  @@index([guildId, createdAt])
+  @@map("audit_logs")
+}
+
+model DkpTransaction {
+  id              Int    @id @default(autoincrement())
+  guildId         BigInt @map("guild_id")
+  userId          BigInt @map("user_id")
+  amount          Int
+  reason          String
+  createdByUserId BigInt @map("created_by_user_id")
+  eventId         String? @map("event_id")
+  createdAt       Int    @map("created_at")
+
+  @@index([guildId, userId])
+  @@map("dkp_transactions")
+}
+
+model Guild {
+  guildId                BigInt @id @map("guild_id")
+  name                   String
+  createdAt              Int    @map("created_at")
+  updatedAt              Int    @map("updated_at")
+  planId                 String? @map("plan_id")
+  subscriptionStatus     String  @map("subscription_status")
+  subscriptionExpiresAt  Int?    @map("subscription_expires_at")
+  isActive               Boolean @map("is_active")
+  configJson             String? @map("config_json")
+
+  @@map("guilds")
+}
