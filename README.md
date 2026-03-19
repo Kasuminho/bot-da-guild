@@ -108,3 +108,7 @@ cp database.db backup-$(date +%F).db
 - [ ] `/dkp add`, `/dkp remove`, `/dkp balance`, `/dkp top`, `/dkp history` work.
 - [ ] `/dkp decay` writes negative ledger transactions.
 - [ ] `/dkp reset confirm:true` writes reset transactions and zeroes balances.
+
+
+## Web dashboard
+A full Next.js dashboard is available in `dashboard/` for Discord OAuth2 authentication, role-based access control, command execution, and bot monitoring. See `dashboard/README.md` for setup, Prisma schema, Discord OAuth configuration, and bot API integration details.

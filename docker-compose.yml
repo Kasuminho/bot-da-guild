@@ -26,5 +26,15 @@ services:
       - ./:/app
     command: python bot.py
 
+  dashboard:
+    build:
+      context: ./dashboard
+    restart: unless-stopped
+    env_file:
+      - ./dashboard/.env
+    ports:
+      - "3000:3000"
+    command: npm run start
+
 volumes:
   pgdata:
