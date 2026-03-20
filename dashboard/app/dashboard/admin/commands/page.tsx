@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { authOptions } from "@/lib/auth";
+import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { parseJson, truncate } from "@/lib/utils";
 
@@ -36,9 +37,9 @@ export default async function AdminCommandsPage() {
         </CardHeader>
         <CardContent>
           <p className="mb-4 text-sm text-muted-foreground">
-            This panel now logs executions separately, while the visible player, request, drop, DKP, and audit data are pulled from the bot's real database.
+            The dashboard reads players, requests, drops, DKP, and audit logs directly from the bot database. HTTP command execution is optional and only used if you explicitly configure a bridge endpoint.
           </p>
-          <CommandForm />
+          <CommandForm enabled={env.botCommandBridgeEnabled} endpoint={env.botCommandEndpoint} />
         </CardContent>
       </Card>
 

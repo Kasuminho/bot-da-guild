@@ -2,11 +2,26 @@
 
 Dashboard Next.js para controlar e monitorar o bot usando **os dados reais que já existem no projeto**.
 
-## O que foi corrigido
-A versão anterior criava tabelas paralelas para itens, logs e usuários do dashboard. Esta versão passa a:
+## O que este dashboard faz de verdade
+Esta versão foi ajustada para:
 - reutilizar `players`, `drops`, `item_requests`, `item_request_logs`, `audit_logs`, `dkp_transactions` e `guilds` do bot existente;
 - manter no dashboard apenas metadados próprios de autenticação/autorização e o histórico do bridge HTTP de comandos (`dashboard_users` e `dashboard_commands`);
-- apontar o Prisma para o mesmo SQLite do bot por padrão (`file:../database.db`).
+- apontar o Prisma para o mesmo banco do bot por padrão (`file:../database.db`).
+
+## O que NÃO é obrigatório
+Você **não precisa** expor uma API de comando do bot para:
+- ver players;
+- ver drops;
+- ver item requests;
+- ver logs;
+- ver DKP;
+- usar o dashboard autenticado.
+
+Tudo isso vem direto do banco já usado pelo bot.
+
+A API HTTP do bot é opcional e hoje serve só para:
+- healthcheck (`/health`);
+- bridge de comandos remotos, se você decidir implementar/configurar isso.
 
 ## Estrutura
 
@@ -43,7 +58,7 @@ A versão anterior criava tabelas paralelas para itens, logs e usuários do dash
 - `dashboard_users`: vínculo OAuth/role do painel (`admin`/`user`).
 - `dashboard_commands`: histórico das execuções enviadas ao endpoint HTTP do bot.
 
-## Setup
+## Setup com o banco que já existe
 
 1. Instale dependências:
    ```bash
@@ -59,6 +74,15 @@ A versão anterior criava tabelas paralelas para itens, logs e usuários do dash
    openssl rand -base64 32
    ```
 4. Aponte o `DATABASE_URL` para o **mesmo banco do bot**.
+
+   ### Se o bot atual usa SQLite
+   Use algo como:
+   ```env
+   DATABASE_URL="file:../database.db"
+   ```
+
+   ### Se o bot atual usa PostgreSQL
+   Ajuste o datasource/driver do Prisma para Postgres antes de subir o dashboard, porque o schema atual do dashboard está configurado com `provider = "sqlite"`.
 5. Crie apenas as tabelas extras do dashboard com Prisma:
    ```bash
    npm run prisma:push
@@ -83,14 +107,31 @@ A versão anterior criava tabelas paralelas para itens, logs e usuários do dash
 4. Defina os IDs de staff em `ADMIN_DISCORD_IDS`.
 
 ## Integração com o bot atual
-### Status
-O dashboard usa o healthcheck já existente do bot:
+### Status do bot
+O dashboard pode consultar o healthcheck já existente do bot:
 ```http
 GET /health
 ```
 
-### Command bridge
-Se o bot expuser o bridge abaixo, o painel usa:
+Por padrão, o exemplo usa:
+```env
+BOT_API_BASE_URL="http://127.0.0.1:10000"
+BOT_STATUS_ENDPOINT="/health"
+```
+
+### Bridge de comandos remotos
+Isso é **opcional**.
+Se o seu bot **não** expõe endpoint HTTP para comando, deixe isto vazio no `dashboard/.env`:
+```env
+BOT_COMMAND_ENDPOINT=""
+```
+
+Se algum dia você quiser ligar essa função, configure por exemplo:
+```env
+BOT_COMMAND_ENDPOINT="/command"
+```
+
+e faça o bot responder algo como:
 ```http
 POST /command
 Content-Type: application/json
@@ -101,7 +142,7 @@ Content-Type: application/json
 }
 ```
 
-> Observação: o restante do dashboard (players, drops, item requests, logs, DKP) já lê o banco real do bot independentemente do bridge HTTP de comando existir.
+> Observação: o restante do dashboard continua lendo o banco real do bot independentemente desse bridge existir.
 
 ## Segurança
 - Todas as rotas `/dashboard` e `/api` exigem sessão.

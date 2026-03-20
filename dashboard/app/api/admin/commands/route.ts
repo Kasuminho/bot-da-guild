@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { executeBotCommand } from "@/lib/bot-api";
+import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 
@@ -31,6 +32,7 @@ export async function GET() {
   });
 
   return NextResponse.json({
+    bridgeEnabled: env.botCommandBridgeEnabled,
     data: commands.map((command) => ({
       ...command,
       targetUserId: command.targetUserId?.toString() ?? null,
@@ -43,6 +45,13 @@ export async function POST(request: NextRequest) {
 
   if (response || !session) {
     return response;
+  }
+
+  if (!env.botCommandBridgeEnabled) {
+    return NextResponse.json(
+      { error: "Bot command bridge disabled", message: "Configure BOT_COMMAND_ENDPOINT to enable this feature." },
+      { status: 503 },
+    );
   }
 
   const payload = await request.json().catch(() => null);
