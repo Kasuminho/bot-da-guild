@@ -4,12 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "node scripts/prepare-prisma-schema.mjs && prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:push": "prisma db push",
+    "prisma:generate": "node scripts/prepare-prisma-schema.mjs && prisma generate",
+    "prisma:migrate": "node scripts/prepare-prisma-schema.mjs && prisma migrate dev",
+    "prisma:push": "node scripts/prepare-prisma-schema.mjs && prisma db push",
     "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {

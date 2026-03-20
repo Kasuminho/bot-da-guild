@@ -6,7 +6,7 @@ Dashboard Next.js para controlar e monitorar o bot usando **os dados reais que j
 Esta versão foi ajustada para:
 - reutilizar `players`, `drops`, `item_requests`, `item_request_logs`, `audit_logs`, `dkp_transactions` e `guilds` do bot existente;
 - manter no dashboard apenas metadados próprios de autenticação/autorização e o histórico do bridge HTTP de comandos (`dashboard_users` e `dashboard_commands`);
-- apontar o Prisma para o mesmo banco do bot por padrão (`file:../database.db`).
+- apontar o Prisma para o mesmo banco do bot por padrão (`file:../database.db`) e permitir trocar o driver entre SQLite e PostgreSQL via ambiente.
 
 ## O que NÃO é obrigatório
 Você **não precisa** expor uma API de comando do bot para:
@@ -78,16 +78,22 @@ A API HTTP do bot é opcional e hoje serve só para:
    ### Se o bot atual usa SQLite
    Use algo como:
    ```env
+   DATABASE_PROVIDER="sqlite"
    DATABASE_URL="file:../database.db"
    ```
 
    ### Se o bot atual usa PostgreSQL
-   Ajuste o datasource/driver do Prisma para Postgres antes de subir o dashboard, porque o schema atual do dashboard está configurado com `provider = "sqlite"`.
+   Use o mesmo banco do bot e ajuste o provider:
+   ```env
+   DATABASE_PROVIDER="postgresql"
+   DATABASE_URL="postgresql://usuario:senha@host:5432/seu_banco"
+   ```
 5. Crie apenas as tabelas extras do dashboard com Prisma:
    ```bash
    npm run prisma:push
    npm run prisma:generate
    ```
+   Esses scripts agora geram automaticamente o `prisma/schema.prisma` com base em `DATABASE_PROVIDER`, então você não precisa editar o schema manualmente ao alternar entre SQLite e PostgreSQL.
 6. Promova admins via `ADMIN_DISCORD_IDS`:
    ```bash
    npm run prisma:seed
