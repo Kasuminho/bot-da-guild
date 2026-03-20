@@ -1,11 +1,21 @@
 import { env } from "@/lib/env";
 
 export async function executeBotCommand(command: string, userId: string) {
+  if (!env.botCommandBridgeEnabled) {
+    return {
+      ok: false,
+      status: 503,
+      data: {
+        message: "Bot command bridge disabled. Configure BOT_COMMAND_ENDPOINT to enable it.",
+      },
+    };
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), env.botApiTimeoutMs);
 
   try {
-    const response = await fetch(`${env.botApiBaseUrl}/command`, {
+    const response = await fetch(`${env.botApiBaseUrl}${env.botCommandEndpoint}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

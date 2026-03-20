@@ -9,10 +9,9 @@ Discord guild bot with legacy loot flow (default), multi-tenant SaaS foundations
 - Legacy loot flow: existing item request and forum delivery cogs.
 
 ## Refactor seams introduced
-- Service layer + repositories (`services/`, `repositories/`).
+- Service layer + repositories (`services/`).
 - Config accessor (`GuildConfigService`).
 - Command routing by mode (`LootEngineRouter` + `LegacyEngine`/`DKPEngine`).
-
 
 ## Legacy vs DKP (important)
 - **Legacy (default):** existing cogs `forum_announce`, `forum_delivery`, `item_requests`.
@@ -20,18 +19,63 @@ Discord guild bot with legacy loot flow (default), multi-tenant SaaS foundations
 - Changing `/loot mode_set` updates per-guild config only. It does **not** rewrite legacy cogs behavior automatically.
 - Use `/loot mode_view` to confirm the guild mode.
 
-## Quick start (local)
+## Como rodar do jeito certo
+
+### 1) Criar o arquivo de ambiente
+Agora o projeto tem um exemplo real na raiz:
+
+```bash
+cp .env.example .env
+```
+
+Preencha pelo menos:
+- `DISCORD_TOKEN`
+- `GUILD_ID`
+- os IDs de canais/cargos que o seu bot já usa
+
+### 2) Escolher qual banco o bot vai usar
+O bot **não precisa criar um banco novo**.
+Você pode apontar para o banco que já está em produção hoje.
+
+#### Opção A — usar PostgreSQL já existente
+No `.env`:
+
+```env
+DATABASE_URL=postgres://usuario:senha@host:5432/seu_banco
+```
+
+Nesse caso o bot usa o Postgres existente diretamente.
+
+#### Opção B — usar SQLite já existente
+No `.env`:
+
+```env
+DATABASE_URL=
+SQLITE_PATH=/caminho/real/do/seu/database.db
+```
+
+Se `DATABASE_URL` estiver vazio, `db.py` sobe em SQLite automaticamente usando `SQLITE_PATH`. Se `SQLITE_PATH` também estiver vazio, ele cai no padrão `./database.db`.
+
+### 3) Instalar dependências e subir
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
 python bot.py
 ```
 
-### SQLite temporário (mais barato)
+### 4) Validar o status HTTP do bot
+Quando o bot sobe, ele já expõe um healthcheck simples:
+
+```text
+GET http://127.0.0.1:10000/health
+```
+
+Esse endpoint é só para status/healthcheck. Ele **não** é necessário para o bot funcionar no Discord.
+
+## SQLite temporário (mais barato)
 - Se `DATABASE_URL` estiver vazio, o bot sobe com SQLite automaticamente.
-- O arquivo padrão passa a ser `./database.db`, mas você pode apontar outro caminho via `SQLITE_PATH`.
+- O arquivo padrão é `./database.db`, mas você pode apontar outro caminho via `SQLITE_PATH`.
 - Para uma VPS/EC2 simples, faça backup copiando o arquivo `.db` antes de cada deploy.
 
 ```bash
@@ -69,7 +113,7 @@ Players:
 1. Install Docker + Docker Compose plugin on EC2.
 2. Clone repository and enter directory.
 3. Create `.env` from `.env.example` and set secrets.
-4. If using SQLite, leave `DATABASE_URL=` empty and keep `SQLITE_PATH=./database.db`.
+4. Point `DATABASE_URL` to the current Postgres database **or** leave `DATABASE_URL=` empty and set `SQLITE_PATH` to the current `.db` file.
 5. Run:
 ```bash
 docker compose up -d --build bot
@@ -109,6 +153,7 @@ cp database.db backup-$(date +%F).db
 - [ ] `/dkp decay` writes negative ledger transactions.
 - [ ] `/dkp reset confirm:true` writes reset transactions and zeroes balances.
 
-
 ## Web dashboard
-A full Next.js dashboard is available in `dashboard/` and now reads the real bot tables (`players`, `drops`, `item_requests`, `item_request_logs`, `audit_logs`, and `dkp_transactions`) instead of duplicating that data in parallel tables. See `dashboard/README.md` for setup, Prisma mappings, Discord OAuth configuration, and the optional command-bridge integration.
+A full Next.js dashboard is available in `dashboard/` and now reads the real bot tables (`players`, `drops`, `item_requests`, `item_request_logs`, `audit_logs`, and `dkp_transactions`) instead of duplicating that data in parallel tables.
+
+**Importante:** o dashboard **não precisa** de API de comando para funcionar com leitura de dados. Ele lê direto do mesmo banco do bot. O bridge HTTP de comando é opcional e só serve se você quiser disparar ações remotas pelo painel. See `dashboard/README.md` for the exact setup.
