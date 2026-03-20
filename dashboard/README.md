@@ -94,6 +94,7 @@ A API HTTP do bot é opcional e hoje serve só para:
    npm run prisma:generate
    ```
    Esses scripts agora geram automaticamente o `prisma/schema.prisma` com base em `DATABASE_PROVIDER`, então você não precisa editar o schema manualmente ao alternar entre SQLite e PostgreSQL.
+   Quando o banco for SQLite legado, o dashboard também normaliza automaticamente colunas de IDs do Discord para `BIGINT` antes de subir o app, evitando overflow do Prisma em snowflakes antigos.
 6. Promova admins via `ADMIN_DISCORD_IDS`:
    ```bash
    npm run prisma:seed
