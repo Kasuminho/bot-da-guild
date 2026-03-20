@@ -12,7 +12,7 @@ export function epochToLocaleString(epoch?: number | null) {
   return new Date(epoch * 1000).toLocaleString();
 }
 
-export async function getPlayerSnapshot(discordId: string) {
+export async function getUserSnapshot(discordId: string) {
   const normalizedDiscordId = discordIdToBigInt(discordId);
 
   const [player, dropCount, drops, requestCount, itemRequests, dkpTransactions, auditLogs] = await Promise.all([
@@ -47,6 +47,7 @@ export async function getPlayerSnapshot(discordId: string) {
   ]);
 
   return {
+    scope: "user" as const,
     player,
     dropCount,
     drops,
@@ -55,6 +56,33 @@ export async function getPlayerSnapshot(discordId: string) {
     dkpTransactions,
     auditLogs,
     dkpBalance: dkpTransactions.reduce((total, row) => total + row.amount, 0),
+  };
+}
+
+export async function getAdminSnapshot() {
+  const [playerCount, dropCount, drops, requestCount, itemRequests, auditCount] = await Promise.all([
+    prisma.player.count({ where: { discordId: { not: null } } }),
+    prisma.drop.count(),
+    prisma.drop.findMany({
+      orderBy: { deliveredAt: "desc" },
+      take: 10,
+    }),
+    prisma.itemRequest.count(),
+    prisma.itemRequest.findMany({
+      orderBy: [{ lastUpdate: "desc" }, { itemName: "asc" }, { rankPosition: "asc" }],
+      take: 10,
+    }),
+    prisma.auditLog.count(),
+  ]);
+
+  return {
+    scope: "admin" as const,
+    playerCount,
+    dropCount,
+    drops,
+    requestCount,
+    itemRequests,
+    auditCount,
   };
 }
 
