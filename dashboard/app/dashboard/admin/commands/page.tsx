@@ -6,8 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { authOptions } from "@/lib/auth";
+import { listDashboardCommands } from "@/lib/dashboard-metadata";
 import { env } from "@/lib/env";
-import { prisma } from "@/lib/prisma";
 import { parseJson, truncate } from "@/lib/utils";
 
 export default async function AdminCommandsPage() {
@@ -21,13 +21,7 @@ export default async function AdminCommandsPage() {
     redirect("/dashboard");
   }
 
-  const commands = await prisma.dashboardCommand.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 20,
-    include: {
-      executor: { select: { username: true } },
-    },
-  });
+  const commands = await listDashboardCommands();
 
   return (
     <div className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">

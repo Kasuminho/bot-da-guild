@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PaginationControls } from "@/components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { authOptions } from "@/lib/auth";
+import { findDashboardUserByDiscordId, getFallbackRole } from "@/lib/dashboard-metadata";
 import { prisma } from "@/lib/prisma";
 
 export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
@@ -42,7 +43,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
           _sum: { amount: true },
           where: { userId: discordId },
         }),
-        prisma.dashboardUser.findUnique({ where: { discordId } }),
+        findDashboardUserByDiscordId(discordId),
       ]);
 
       return {
@@ -51,7 +52,7 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
         nickname: player.nicknameIngame ?? "—",
         language: player.language ?? "—",
         timezone: player.timezone ?? "—",
-        role: dashboardUser?.role ?? "user",
+        role: dashboardUser?.role ?? getFallbackRole(discordId.toString()),
         dropsCount,
         requestsCount,
         dkpBalance: dkpBalance._sum.amount ?? 0,
