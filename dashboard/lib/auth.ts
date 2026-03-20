@@ -72,8 +72,9 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user, profile }) {
       const discordId = profile && "id" in profile ? String(profile.id) : user.discordId;
-      const username = profile && "username" in profile ? String(profile.username) : user.name ?? "Discord User";
-      const avatar = profile && "avatar" in profile ? String(profile.avatar ?? "") || null : user.avatar ?? null;
+      const profileData = (profile ?? {}) as { username?: string; avatar?: string | null };
+      const username = profileData.username ? String(profileData.username) : user.name ?? "Discord User";
+      const avatar = profileData.avatar ? String(profileData.avatar) : user.avatar ?? null;
 
       const dbUser = await syncDashboardUser(discordId, username, avatar);
       user.id = dbUser.id;
@@ -91,10 +92,11 @@ export const authOptions: NextAuthOptions = {
       }
 
       if (!token.id && profile && "id" in profile) {
+        const profileData = profile as { id: string | number; username?: string; avatar?: string | null };
         const dbUser = await syncDashboardUser(
-          String(profile.id),
-          String(profile.username),
-          String(profile.avatar ?? "") || null,
+          String(profileData.id),
+          profileData.username ? String(profileData.username) : "Discord User",
+          profileData.avatar ? String(profileData.avatar) : null,
         );
         token.id = dbUser.id;
         token.discordId = dbUser.discordId.toString();

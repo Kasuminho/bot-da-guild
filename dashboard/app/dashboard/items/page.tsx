@@ -17,11 +17,12 @@ export default async function ItemsPage({ searchParams }: { searchParams: Promis
     return null;
   }
 
-  const discordId = BigInt(session.user.discordId);
+  const isAdmin = session.user.role === "admin";
+  const where = isAdmin ? {} : { discordId: BigInt(session.user.discordId) };
   const [total, drops] = await Promise.all([
-    prisma.drop.count({ where: { discordId } }),
+    prisma.drop.count({ where }),
     prisma.drop.findMany({
-      where: { discordId },
+      where,
       orderBy: { deliveredAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -33,13 +34,14 @@ export default async function ItemsPage({ searchParams }: { searchParams: Promis
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Delivered items</CardTitle>
+        <CardTitle>{isAdmin ? "Delivered items across the guild" : "Delivered items"}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                {isAdmin ? <TableHead>Player</TableHead> : null}
                 <TableHead>Item</TableHead>
                 <TableHead>Nickname</TableHead>
                 <TableHead>Thread</TableHead>
@@ -48,15 +50,24 @@ export default async function ItemsPage({ searchParams }: { searchParams: Promis
               </TableRow>
             </TableHeader>
             <TableBody>
-              {drops.map((drop) => (
-                <TableRow key={drop.id}>
-                  <TableCell>{drop.item ?? "—"}</TableCell>
-                  <TableCell>{drop.nicknameIngame ?? "—"}</TableCell>
-                  <TableCell>{drop.threadId?.toString() ?? "—"}</TableCell>
-                  <TableCell>{drop.staffId?.toString() ?? "—"}</TableCell>
-                  <TableCell>{epochToLocaleString(drop.deliveredAt)}</TableCell>
+              {drops.length > 0 ? (
+                drops.map((drop) => (
+                  <TableRow key={drop.id}>
+                    {isAdmin ? <TableCell>{drop.discordId?.toString() ?? "—"}</TableCell> : null}
+                    <TableCell>{drop.item ?? "—"}</TableCell>
+                    <TableCell>{drop.nicknameIngame ?? "—"}</TableCell>
+                    <TableCell>{drop.threadId?.toString() ?? "—"}</TableCell>
+                    <TableCell>{drop.staffId?.toString() ?? "—"}</TableCell>
+                    <TableCell>{epochToLocaleString(drop.deliveredAt)}</TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={isAdmin ? 6 : 5} className="text-center text-muted-foreground">
+                    No delivered items were found for this view yet.
+                  </TableCell>
                 </TableRow>
-              ))}
+              )}
             </TableBody>
           </Table>
         </div>
