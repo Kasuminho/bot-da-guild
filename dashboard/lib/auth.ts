@@ -31,13 +31,14 @@ declare module "next-auth/jwt" {
   }
 }
 
-async function syncUser(discordId: string, username: string, avatar?: string | null) {
+async function syncDashboardUser(discordId: string, username: string, avatar?: string | null) {
+  const normalizedDiscordId = BigInt(discordId);
   const role = env.adminDiscordIds.includes(discordId) ? UserRole.admin : UserRole.user;
 
-  return prisma.user.upsert({
-    where: { discordId },
+  return prisma.dashboardUser.upsert({
+    where: { discordId: normalizedDiscordId },
     update: { username, avatar: avatar ?? null, role },
-    create: { discordId, username, avatar: avatar ?? null, role },
+    create: { discordId: normalizedDiscordId, username, avatar: avatar ?? null, role },
   });
 }
 
@@ -51,7 +52,7 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.DISCORD_CLIENT_SECRET ?? "",
       authorization: {
         params: {
-          scope: "identify email guilds",
+          scope: "identify guilds",
         },
       },
       profile(profile) {
@@ -74,10 +75,10 @@ export const authOptions: NextAuthOptions = {
       const username = profile && "username" in profile ? String(profile.username) : user.name ?? "Discord User";
       const avatar = profile && "avatar" in profile ? String(profile.avatar ?? "") || null : user.avatar ?? null;
 
-      const dbUser = await syncUser(discordId, username, avatar);
+      const dbUser = await syncDashboardUser(discordId, username, avatar);
       user.id = dbUser.id;
       user.role = dbUser.role;
-      user.discordId = dbUser.discordId;
+      user.discordId = dbUser.discordId.toString();
       user.avatar = dbUser.avatar;
       return true;
     },
@@ -90,9 +91,13 @@ export const authOptions: NextAuthOptions = {
       }
 
       if (!token.id && profile && "id" in profile) {
-        const dbUser = await syncUser(String(profile.id), String(profile.username), String(profile.avatar ?? "") || null);
+        const dbUser = await syncDashboardUser(
+          String(profile.id),
+          String(profile.username),
+          String(profile.avatar ?? "") || null,
+        );
         token.id = dbUser.id;
-        token.discordId = dbUser.discordId;
+        token.discordId = dbUser.discordId.toString();
         token.role = dbUser.role;
         token.avatar = dbUser.avatar;
       }

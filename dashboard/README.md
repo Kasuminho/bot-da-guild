@@ -1,17 +1,14 @@
 # Bot da Guild Dashboard
 
-A production-ready Next.js dashboard for operating and monitoring the Discord bot.
+Dashboard Next.js para controlar e monitorar o bot usando **os dados reais que já existem no projeto**.
 
-## Features
-- Discord OAuth2 login with NextAuth.
-- Role-based access control for `admin` and `user` accounts.
-- SQLite database powered by Prisma.
-- Admin pages for users, logs, activity, and bot command execution.
-- User pages for profile data, sent items, personal logs, and bot status.
-- Server-side bot API proxy so the local bot HTTP API is never exposed to browsers.
-- Responsive layout with Tailwind CSS and reusable shadcn-style UI primitives.
+## O que foi corrigido
+A versão anterior criava tabelas paralelas para itens, logs e usuários do dashboard. Esta versão passa a:
+- reutilizar `players`, `drops`, `item_requests`, `item_request_logs`, `audit_logs`, `dkp_transactions` e `guilds` do bot existente;
+- manter no dashboard apenas metadados próprios de autenticação/autorização e o histórico do bridge HTTP de comandos (`dashboard_users` e `dashboard_commands`);
+- apontar o Prisma para o mesmo SQLite do bot por padrão (`file:../database.db`).
 
-## Project structure
+## Estrutura
 
 ```text
 /dashboard
@@ -27,115 +24,86 @@ A production-ready Next.js dashboard for operating and monitoring the Discord bo
 │   │   ├── admin/
 │   │   ├── items/
 │   │   └── logs/
-│   ├── login/
-│   ├── globals.css
-│   └── layout.tsx
+│   └── login/
 ├── components/
-│   ├── dashboard/
-│   ├── forms/
-│   ├── layout/
-│   └── ui/
 ├── lib/
-├── prisma/
-│   ├── schema.prisma
-│   └── seed.ts
-├── .env.example
-└── package.json
+└── prisma/
 ```
+
+## Fontes reais de dados do bot
+- `players`: cadastro do jogador, idioma, canal e timezone.
+- `drops`: itens entregues ao jogador.
+- `item_requests`: fila/ranking ativo de requests.
+- `item_request_logs`: histórico operacional dos requests.
+- `audit_logs`: trilha de auditoria administrativa/DKP/SaaS.
+- `dkp_transactions`: saldo e histórico de DKP.
+- `guilds`: plano e status do tenant.
+
+## Tabelas próprias do dashboard
+- `dashboard_users`: vínculo OAuth/role do painel (`admin`/`user`).
+- `dashboard_commands`: histórico das execuções enviadas ao endpoint HTTP do bot.
 
 ## Setup
 
-1. Install dependencies:
+1. Instale dependências:
    ```bash
    cd dashboard
    npm install
    ```
-2. Copy the environment template:
+2. Copie o ambiente:
    ```bash
    cp .env.example .env
    ```
-3. Create a random NextAuth secret:
+3. Gere a secret do NextAuth:
    ```bash
    openssl rand -base64 32
    ```
-4. Create the SQLite database and Prisma client:
+4. Aponte o `DATABASE_URL` para o **mesmo banco do bot**.
+5. Crie apenas as tabelas extras do dashboard com Prisma:
    ```bash
    npm run prisma:push
    npm run prisma:generate
    ```
-5. Optionally bootstrap admins from `ADMIN_DISCORD_IDS`:
+6. Promova admins via `ADMIN_DISCORD_IDS`:
    ```bash
    npm run prisma:seed
    ```
-6. Start the dashboard:
+7. Rode o painel:
    ```bash
    npm run dev
    ```
 
-## Discord OAuth2 setup
-
-1. Open the [Discord Developer Portal](https://discord.com/developers/applications).
-2. Create a new application.
-3. Go to **OAuth2 > General** and copy the **Client ID** and **Client Secret**.
-4. Add the redirect URI:
+## OAuth do Discord
+1. Crie a aplicação no Discord Developer Portal.
+2. Copie `Client ID` e `Client Secret`.
+3. Configure o callback:
    ```text
    http://localhost:3000/api/auth/callback/discord
    ```
-5. Put the credentials into `.env`.
-6. List admin Discord IDs in `ADMIN_DISCORD_IDS` for staff accounts.
+4. Defina os IDs de staff em `ADMIN_DISCORD_IDS`.
 
-## Bot API contract
+## Integração com o bot atual
+### Status
+O dashboard usa o healthcheck já existente do bot:
+```http
+GET /health
+```
 
-The dashboard expects a local HTTP API:
-
-### Execute command
+### Command bridge
+Se o bot expuser o bridge abaixo, o painel usa:
 ```http
 POST /command
 Content-Type: application/json
 
 {
-  "command": "grant_loot epic-sword",
+  "command": "dkp add 123456789012345678 10 weekly_reward",
   "userId": "123456789012345678"
 }
 ```
 
-### Health check
-```http
-GET /health
-```
+> Observação: o restante do dashboard (players, drops, item requests, logs, DKP) já lê o banco real do bot independentemente do bridge HTTP de comando existir.
 
-Any non-2xx command response is stored as a failed command execution in the dashboard audit tables.
-
-## Example local bot API implementation
-
-```ts
-import express from "express";
-
-const app = express();
-app.use(express.json());
-
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
-});
-
-app.post("/command", (req, res) => {
-  const { command, userId } = req.body ?? {};
-
-  if (!command || !userId) {
-    return res.status(400).json({ message: "command and userId are required" });
-  }
-
-  console.log("Executing bot command", { command, userId });
-  return res.json({ success: true, command, userId });
-});
-
-app.listen(8080, () => {
-  console.log("Bot API listening on http://127.0.0.1:8080");
-});
-```
-
-## Security notes
-- All dashboard pages and API routes require an authenticated session.
-- Admin APIs additionally require `role === admin`.
-- Command execution only occurs server-side through `/api/admin/commands`.
-- API inputs are validated with Zod before bot requests are sent.
+## Segurança
+- Todas as rotas `/dashboard` e `/api` exigem sessão.
+- Endpoints administrativos validam `role === admin`.
+- O navegador nunca fala direto com o bot HTTP; tudo passa pelo backend do Next.

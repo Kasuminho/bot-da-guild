@@ -8,7 +8,7 @@ import { requireAdmin } from "@/lib/session";
 
 const commandSchema = z.object({
   command: z.string().trim().min(1).max(200),
-  userId: z.string().trim().min(1).max(100),
+  userId: z.string().trim().regex(/^\d+$/).min(1).max(100),
 });
 
 export async function GET() {
@@ -18,20 +18,24 @@ export async function GET() {
     return response;
   }
 
-  const commands = await prisma.command.findMany({
+  const commands = await prisma.dashboardCommand.findMany({
     orderBy: { createdAt: "desc" },
     take: 20,
     include: {
       executor: {
         select: {
           username: true,
-          discordId: true,
         },
       },
     },
   });
 
-  return NextResponse.json({ data: commands });
+  return NextResponse.json({
+    data: commands.map((command) => ({
+      ...command,
+      targetUserId: command.targetUserId?.toString() ?? null,
+    })),
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -51,9 +55,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const pendingCommand = await prisma.command.create({
+  const pendingCommand = await prisma.dashboardCommand.create({
     data: {
-      executedBy: session.user.id,
+      executedById: session.user.id,
+      targetUserId: BigInt(parsed.data.userId),
       command: parsed.data.command,
       status: CommandStatus.pending,
       result: JSON.stringify({ targetUserId: parsed.data.userId }),
@@ -63,30 +68,25 @@ export async function POST(request: NextRequest) {
   const botResponse = await executeBotCommand(parsed.data.command, parsed.data.userId);
   const status = botResponse.ok ? CommandStatus.success : CommandStatus.error;
 
-  const updatedCommand = await prisma.command.update({
+  const updatedCommand = await prisma.dashboardCommand.update({
     where: { id: pendingCommand.id },
     data: {
       status,
       result: JSON.stringify(botResponse.data),
     },
-  });
-
-  await prisma.log.create({
-    data: {
-      userId: session.user.id,
-      action: botResponse.ok ? "BOT_COMMAND_EXECUTED" : "BOT_COMMAND_FAILED",
-      metadata: JSON.stringify({
-        commandId: updatedCommand.id,
-        command: parsed.data.command,
-        targetUserId: parsed.data.userId,
-        response: botResponse.data,
-      }),
+    include: {
+      executor: {
+        select: { username: true },
+      },
     },
   });
 
   return NextResponse.json(
     {
-      data: updatedCommand,
+      data: {
+        ...updatedCommand,
+        targetUserId: updatedCommand.targetUserId?.toString() ?? null,
+      },
       botResponse: botResponse.data,
     },
     { status: botResponse.ok ? 200 : 502 },

@@ -1,11 +1,11 @@
 import { getServerSession } from "next-auth";
 
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PaginationControls } from "@/components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { parseJson } from "@/lib/utils";
+import { epochToLocaleString, getUserTimeline } from "@/lib/bot-data";
 
 export default async function LogsPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const session = await getServerSession(authOptions);
@@ -17,41 +17,37 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
     return null;
   }
 
-  const [total, logs] = await Promise.all([
-    prisma.log.count({ where: { userId: session.user.id } }),
-    prisma.log.findMany({
-      where: { userId: session.user.id },
-      orderBy: { createdAt: "desc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
-
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const timeline = await getUserTimeline(session.user.discordId);
+  const rows = timeline.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(timeline.length / pageSize));
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>My history logs</CardTitle>
+        <CardTitle>My bot activity</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Action</TableHead>
-                <TableHead>Metadata</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead>Event</TableHead>
+                <TableHead>Description</TableHead>
                 <TableHead>Timestamp</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {logs.map((log) => (
-                <TableRow key={log.id}>
-                  <TableCell>{log.action}</TableCell>
-                  <TableCell className="max-w-md whitespace-pre-wrap text-xs text-muted-foreground">
-                    {JSON.stringify(parseJson(log.metadata, {}), null, 2)}
+              {rows.map((entry) => (
+                <TableRow key={entry.id}>
+                  <TableCell>
+                    <Badge variant="secondary">{entry.source}</Badge>
                   </TableCell>
-                  <TableCell>{log.createdAt.toLocaleString()}</TableCell>
+                  <TableCell>{entry.title}</TableCell>
+                  <TableCell className="max-w-md whitespace-pre-wrap text-xs text-muted-foreground">
+                    {JSON.stringify(entry.metadata ?? entry.description, null, 2)}
+                  </TableCell>
+                  <TableCell>{epochToLocaleString(entry.createdAt)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

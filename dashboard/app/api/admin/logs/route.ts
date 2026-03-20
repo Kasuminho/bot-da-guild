@@ -14,25 +14,20 @@ export async function GET(request: NextRequest) {
   const { page, pageSize, skip } = getPaginationParams(request.nextUrl.searchParams);
 
   const [total, logs] = await Promise.all([
-    prisma.log.count(),
-    prisma.log.findMany({
+    prisma.auditLog.count(),
+    prisma.auditLog.findMany({
       orderBy: { createdAt: "desc" },
       skip,
       take: pageSize,
-      include: {
-        user: {
-          select: {
-            username: true,
-            discordId: true,
-            role: true,
-          },
-        },
-      },
     }),
   ]);
 
   return NextResponse.json({
-    data: logs,
+    data: logs.map((log) => ({
+      ...log,
+      guildId: log.guildId.toString(),
+      actorUserId: log.actorUserId.toString(),
+    })),
     pagination: {
       page,
       pageSize,

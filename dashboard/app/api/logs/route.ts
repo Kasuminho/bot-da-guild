@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getPaginationParams } from "@/lib/pagination";
-import { prisma } from "@/lib/prisma";
+import { getUserTimeline } from "@/lib/bot-data";
 import { requireSession } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
@@ -12,25 +12,16 @@ export async function GET(request: NextRequest) {
   }
 
   const { page, pageSize, skip } = getPaginationParams(request.nextUrl.searchParams);
-  const where = { userId: session.user.id };
-
-  const [total, logs] = await Promise.all([
-    prisma.log.count({ where }),
-    prisma.log.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip,
-      take: pageSize,
-    }),
-  ]);
+  const timeline = await getUserTimeline(session.user.discordId);
+  const data = timeline.slice(skip, skip + pageSize);
 
   return NextResponse.json({
-    data: logs,
+    data,
     pagination: {
       page,
       pageSize,
-      total,
-      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      total: timeline.length,
+      totalPages: Math.max(1, Math.ceil(timeline.length / pageSize)),
     },
   });
 }

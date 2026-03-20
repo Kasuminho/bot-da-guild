@@ -6,15 +6,16 @@ async function main() {
   const adminIds = (process.env.ADMIN_DISCORD_IDS ?? "")
     .split(",")
     .map((value) => value.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((value) => BigInt(value));
 
   for (const discordId of adminIds) {
-    await prisma.user.upsert({
+    await prisma.dashboardUser.upsert({
       where: { discordId },
       update: { role: UserRole.admin },
       create: {
         discordId,
-        username: `Admin ${discordId.slice(-4)}`,
+        username: `Admin ${discordId.toString().slice(-4)}`,
         role: UserRole.admin,
       },
     });

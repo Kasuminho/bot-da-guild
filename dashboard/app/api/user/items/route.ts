@@ -12,11 +12,12 @@ export async function GET(request: NextRequest) {
   }
 
   const { page, pageSize, skip } = getPaginationParams(request.nextUrl.searchParams);
-  const where = { userId: session.user.id };
+  const discordId = BigInt(session.user.discordId);
+  const where = { discordId };
 
   const [total, items] = await Promise.all([
-    prisma.item.count({ where }),
-    prisma.item.findMany({
+    prisma.drop.count({ where }),
+    prisma.drop.findMany({
       where,
       orderBy: { deliveredAt: "desc" },
       skip,
@@ -25,7 +26,12 @@ export async function GET(request: NextRequest) {
   ]);
 
   return NextResponse.json({
-    data: items,
+    data: items.map((item) => ({
+      ...item,
+      discordId: item.discordId?.toString() ?? null,
+      threadId: item.threadId?.toString() ?? null,
+      staffId: item.staffId?.toString() ?? null,
+    })),
     pagination: {
       page,
       pageSize,

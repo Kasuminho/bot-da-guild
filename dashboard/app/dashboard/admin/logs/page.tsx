@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PaginationControls } from "@/components/ui/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { authOptions } from "@/lib/auth";
+import { epochToLocaleString } from "@/lib/bot-data";
 import { prisma } from "@/lib/prisma";
 import { parseJson } from "@/lib/utils";
 
@@ -24,14 +25,11 @@ export default async function AdminLogsPage({ searchParams }: { searchParams: Pr
   }
 
   const [total, logs] = await Promise.all([
-    prisma.log.count(),
-    prisma.log.findMany({
+    prisma.auditLog.count(),
+    prisma.auditLog.findMany({
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: {
-        user: { select: { username: true, discordId: true } },
-      },
     }),
   ]);
 
@@ -40,33 +38,35 @@ export default async function AdminLogsPage({ searchParams }: { searchParams: Pr
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Global logs</CardTitle>
+        <CardTitle>Audit logs from the bot</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>User</TableHead>
                 <TableHead>Action</TableHead>
-                <TableHead>Metadata</TableHead>
+                <TableHead>Actor</TableHead>
+                <TableHead>Entity</TableHead>
+                <TableHead>Details</TableHead>
                 <TableHead>Timestamp</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {logs.map((log) => (
                 <TableRow key={log.id}>
+                  <TableCell>{log.action}</TableCell>
+                  <TableCell>{log.actorUserId.toString()}</TableCell>
                   <TableCell>
                     <div className="space-y-1">
-                      <p>{log.user.username}</p>
-                      <Badge variant="outline">{log.user.discordId}</Badge>
+                      <p>{log.entityType}</p>
+                      {log.entityId ? <Badge variant="outline">{log.entityId}</Badge> : null}
                     </div>
                   </TableCell>
-                  <TableCell>{log.action}</TableCell>
                   <TableCell className="max-w-md whitespace-pre-wrap text-xs text-muted-foreground">
-                    {JSON.stringify(parseJson(log.metadata, {}), null, 2)}
+                    {JSON.stringify(parseJson(log.detailsJson, {}), null, 2)}
                   </TableCell>
-                  <TableCell>{log.createdAt.toLocaleString()}</TableCell>
+                  <TableCell>{epochToLocaleString(log.createdAt)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

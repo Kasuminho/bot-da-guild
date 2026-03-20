@@ -22,49 +22,78 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
     redirect("/dashboard");
   }
 
-  const [total, users] = await Promise.all([
-    prisma.user.count(),
-    prisma.user.findMany({
-      orderBy: { createdAt: "desc" },
+  const [total, players] = await Promise.all([
+    prisma.player.count({ where: { discordId: { not: null } } }),
+    prisma.player.findMany({
+      where: { discordId: { not: null } },
+      orderBy: { id: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: {
-        _count: { select: { logs: true, items: true, commands: true } },
-      },
     }),
   ]);
+
+  const rows = await Promise.all(
+    players.map(async (player) => {
+      const discordId = player.discordId!;
+      const [dropsCount, requestsCount, dkpBalance, dashboardUser] = await Promise.all([
+        prisma.drop.count({ where: { discordId } }),
+        prisma.itemRequest.count({ where: { discordId } }),
+        prisma.dkpTransaction.aggregate({
+          _sum: { amount: true },
+          where: { userId: discordId },
+        }),
+        prisma.dashboardUser.findUnique({ where: { discordId } }),
+      ]);
+
+      return {
+        id: player.id,
+        discordId: discordId.toString(),
+        nickname: player.nicknameIngame ?? "—",
+        language: player.language ?? "—",
+        timezone: player.timezone ?? "—",
+        role: dashboardUser?.role ?? "user",
+        dropsCount,
+        requestsCount,
+        dkpBalance: dkpBalance._sum.amount ?? 0,
+      };
+    }),
+  );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>All users</CardTitle>
+        <CardTitle>Registered bot players</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Username</TableHead>
                 <TableHead>Discord ID</TableHead>
+                <TableHead>Nickname</TableHead>
+                <TableHead>Language</TableHead>
+                <TableHead>Timezone</TableHead>
                 <TableHead>Role</TableHead>
-                <TableHead>Logs</TableHead>
-                <TableHead>Items</TableHead>
-                <TableHead>Commands</TableHead>
+                <TableHead>Drops</TableHead>
+                <TableHead>Requests</TableHead>
+                <TableHead>DKP</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((user) => (
+              {rows.map((user) => (
                 <TableRow key={user.id}>
-                  <TableCell>{user.username}</TableCell>
                   <TableCell>{user.discordId}</TableCell>
+                  <TableCell>{user.nickname}</TableCell>
+                  <TableCell>{user.language}</TableCell>
+                  <TableCell>{user.timezone}</TableCell>
                   <TableCell>
                     <Badge variant={user.role === "admin" ? "success" : "secondary"}>{user.role}</Badge>
                   </TableCell>
-                  <TableCell>{user._count.logs}</TableCell>
-                  <TableCell>{user._count.items}</TableCell>
-                  <TableCell>{user._count.commands}</TableCell>
+                  <TableCell>{user.dropsCount}</TableCell>
+                  <TableCell>{user.requestsCount}</TableCell>
+                  <TableCell>{user.dkpBalance}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

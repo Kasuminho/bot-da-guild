@@ -111,4 +111,4 @@ cp database.db backup-$(date +%F).db
 
 
 ## Web dashboard
-A full Next.js dashboard is available in `dashboard/` for Discord OAuth2 authentication, role-based access control, command execution, and bot monitoring. See `dashboard/README.md` for setup, Prisma schema, Discord OAuth configuration, and bot API integration details.
+A full Next.js dashboard is available in `dashboard/` and now reads the real bot tables (`players`, `drops`, `item_requests`, `item_request_logs`, `audit_logs`, and `dkp_transactions`) instead of duplicating that data in parallel tables. See `dashboard/README.md` for setup, Prisma mappings, Discord OAuth configuration, and the optional command-bridge integration.

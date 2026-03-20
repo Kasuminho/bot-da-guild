@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 
 interface ActivityEntry {
   id: string;
-  type: "log" | "command";
+  type: string;
   label: string;
   actor: string;
   status?: string;
@@ -33,11 +33,11 @@ export function ActivityFeed({ initialEntries }: { initialEntries: ActivityEntry
         <div key={`${entry.type}-${entry.id}`} className="flex items-start justify-between rounded-lg border border-border p-4">
           <div>
             <p className="font-medium">{entry.label}</p>
-            <p className="text-sm text-muted-foreground">Triggered by {entry.actor}</p>
+            <p className="text-sm text-muted-foreground">Actor: {entry.actor}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <Badge variant={entry.type === "command" ? "warning" : "secondary"}>
-              {entry.type === "command" && entry.status ? `${entry.type}:${entry.status}` : entry.type}
+              {entry.status ? `${entry.type}:${entry.status}` : entry.type}
             </Badge>
             <p className="text-xs text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</p>
           </div>

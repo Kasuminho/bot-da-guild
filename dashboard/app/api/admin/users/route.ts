@@ -12,34 +12,42 @@ export async function GET(request: NextRequest) {
   }
 
   const { page, pageSize, skip } = getPaginationParams(request.nextUrl.searchParams);
-  const search = request.nextUrl.searchParams.get("search")?.trim();
-
-  const where = search
-    ? {
-        OR: [
-          { username: { contains: search } },
-          { discordId: { contains: search } },
-        ],
-      }
-    : {};
-
-  const [total, users] = await Promise.all([
-    prisma.user.count({ where }),
-    prisma.user.findMany({
-      where,
+  const [total, players] = await Promise.all([
+    prisma.player.count({ where: { discordId: { not: null } } }),
+    prisma.player.findMany({
+      where: { discordId: { not: null } },
+      orderBy: { id: "desc" },
       skip,
       take: pageSize,
-      orderBy: { createdAt: "desc" },
-      include: {
-        _count: {
-          select: { logs: true, items: true, commands: true },
-        },
-      },
     }),
   ]);
 
+  const data = await Promise.all(
+    players.map(async (player) => {
+      const discordId = player.discordId!;
+      const [dropsCount, requestsCount, dkpCount, dashboardUser] = await Promise.all([
+        prisma.drop.count({ where: { discordId } }),
+        prisma.itemRequest.count({ where: { discordId } }),
+        prisma.dkpTransaction.count({ where: { userId: discordId } }),
+        prisma.dashboardUser.findUnique({ where: { discordId } }),
+      ]);
+
+      return {
+        id: player.id,
+        discordId: discordId.toString(),
+        nicknameIngame: player.nicknameIngame,
+        language: player.language,
+        timezone: player.timezone,
+        role: dashboardUser?.role ?? "user",
+        dropsCount,
+        requestsCount,
+        dkpCount,
+      };
+    }),
+  );
+
   return NextResponse.json({
-    data: users,
+    data,
     pagination: {
       page,
       pageSize,
