@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "node scripts/prepare-prisma-schema.mjs && prisma generate && next build",
+    "dev": "node scripts/prepare-prisma-schema.mjs && prisma generate && node scripts/normalize-sqlite-bigints.mjs && next dev",
+    "build": "node scripts/prepare-prisma-schema.mjs && prisma generate && node scripts/normalize-sqlite-bigints.mjs && next build",
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "node scripts/prepare-prisma-schema.mjs && prisma generate",

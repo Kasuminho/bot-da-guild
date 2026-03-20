@@ -1,9 +1,9 @@
 CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    discord_id INTEGER UNIQUE,
+    discord_id BIGINT UNIQUE,
     nickname_ingame TEXT,
     language TEXT,
-    channel_id INTEGER,
+    channel_id BIGINT,
     timezone TEXT
 );
 
@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS one_time_reminders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tipo TEXT NOT NULL,
     nome TEXT NOT NULL,
-    channel_id INTEGER NOT NULL,
+    channel_id BIGINT NOT NULL,
     timestamp INTEGER NOT NULL,
     sent INTEGER DEFAULT 0,
     warned_4h INTEGER DEFAULT 0,
@@ -32,14 +32,14 @@ CREATE TABLE IF NOT EXISTS boss_rotations (
 CREATE TABLE IF NOT EXISTS boss_participation (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     rotation_id INTEGER NOT NULL REFERENCES boss_rotations(id),
-    discord_id INTEGER NOT NULL,
+    discord_id BIGINT NOT NULL,
     present INTEGER NOT NULL,
     UNIQUE(rotation_id, discord_id)
 );
 
 CREATE TABLE IF NOT EXISTS forum_posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id INTEGER UNIQUE,
+    thread_id BIGINT UNIQUE,
     close_time INTEGER,
     closed INTEGER DEFAULT 0,
     delivered INTEGER DEFAULT 0
@@ -47,17 +47,17 @@ CREATE TABLE IF NOT EXISTS forum_posts (
 
 CREATE TABLE IF NOT EXISTS drops (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    discord_id INTEGER,
+    discord_id BIGINT,
     nickname_ingame TEXT,
     item TEXT,
-    thread_id INTEGER,
-    staff_id INTEGER,
+    thread_id BIGINT,
+    staff_id BIGINT,
     delivered_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS daily_announcements (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    channel_id INTEGER UNIQUE,
+    channel_id BIGINT UNIQUE,
     text_pt TEXT NOT NULL,
     text_en TEXT NOT NULL,
     image_pt_path TEXT NOT NULL,
@@ -78,9 +78,9 @@ CREATE TABLE IF NOT EXISTS player_levels (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_player_day ON player_levels(player_id, day);
 
 CREATE TABLE IF NOT EXISTS parties (
-    message_id INTEGER PRIMARY KEY,
-    channel_id INTEGER NOT NULL,
-    creator_id INTEGER NOT NULL,
+    message_id BIGINT PRIMARY KEY,
+    channel_id BIGINT NOT NULL,
+    creator_id BIGINT NOT NULL,
     reason_pt TEXT NOT NULL,
     reason_en TEXT NOT NULL,
     start_ts INTEGER NOT NULL,
@@ -103,14 +103,14 @@ CREATE TABLE IF NOT EXISTS forum_items (
 
 CREATE TABLE IF NOT EXISTS item_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    discord_id INTEGER NOT NULL,
+    discord_id BIGINT NOT NULL,
     player_name TEXT NOT NULL,
     item_name TEXT NOT NULL,
     total_quantity INTEGER NOT NULL,
     remaining_quantity INTEGER NOT NULL,
     rank_position INTEGER NOT NULL,
-    thread_id INTEGER NOT NULL,
-    thread_channel_id INTEGER NOT NULL,
+    thread_id BIGINT NOT NULL,
+    thread_channel_id BIGINT NOT NULL,
     created_at INTEGER NOT NULL,
     last_update INTEGER NOT NULL,
     warned_3d INTEGER DEFAULT 0,
@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS item_request_logs (
     request_id INTEGER NOT NULL,
     action TEXT NOT NULL,
     info TEXT,
-    thread_id INTEGER,
+    thread_id BIGINT,
     created_at INTEGER NOT NULL
 );
 
@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS plans (
 );
 
 CREATE TABLE IF NOT EXISTS guilds (
-    guild_id INTEGER PRIMARY KEY,
+    guild_id BIGINT PRIMARY KEY,
     name TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -159,8 +159,8 @@ CREATE TABLE IF NOT EXISTS guilds (
 
 CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    guild_id INTEGER NOT NULL,
-    actor_user_id INTEGER NOT NULL,
+    guild_id BIGINT NOT NULL,
+    actor_user_id BIGINT NOT NULL,
     action TEXT NOT NULL,
     entity_type TEXT NOT NULL,
     entity_id TEXT,
@@ -170,34 +170,34 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE TABLE IF NOT EXISTS dkp_transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    guild_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
+    guild_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
     amount INTEGER NOT NULL,
     reason TEXT NOT NULL,
-    created_by_user_id INTEGER NOT NULL,
+    created_by_user_id BIGINT NOT NULL,
     event_id TEXT,
     created_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS dkp_bids (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    guild_id INTEGER NOT NULL,
-    channel_id INTEGER NOT NULL,
+    guild_id BIGINT NOT NULL,
+    channel_id BIGINT NOT NULL,
     item_name TEXT NOT NULL,
     min_bid INTEGER NOT NULL,
     ends_at INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'open',
-    winner_user_id INTEGER,
+    winner_user_id BIGINT,
     winning_bid INTEGER,
-    created_by_user_id INTEGER NOT NULL,
+    created_by_user_id BIGINT NOT NULL,
     created_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS dkp_bid_entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     bid_id INTEGER NOT NULL REFERENCES dkp_bids(id),
-    guild_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
+    guild_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
     amount INTEGER NOT NULL,
     created_at INTEGER NOT NULL
 );
