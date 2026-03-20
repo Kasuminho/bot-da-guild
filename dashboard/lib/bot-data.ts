@@ -1,5 +1,6 @@
 import type { ItemRequestLog } from "@prisma/client";
 
+import { listActivityDashboardCommands } from "@/lib/dashboard-metadata";
 import { prisma } from "@/lib/prisma";
 import { parseJson } from "@/lib/utils";
 
@@ -168,11 +169,7 @@ export async function getAdminActivity() {
     prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 12 }),
     prisma.drop.findMany({ orderBy: { deliveredAt: "desc" }, take: 12 }),
     prisma.itemRequestLog.findMany({ orderBy: { createdAt: "desc" }, take: 12 }),
-    prisma.dashboardCommand.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 12,
-      include: { executor: true },
-    }),
+    listActivityDashboardCommands(),
   ]);
 
   return [

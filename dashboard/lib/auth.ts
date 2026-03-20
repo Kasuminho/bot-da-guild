@@ -3,8 +3,8 @@ import type { DefaultSession, NextAuthOptions } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import DiscordProvider from "next-auth/providers/discord";
 
+import { syncDashboardUser } from "@/lib/dashboard-metadata";
 import { env } from "@/lib/env";
-import { prisma } from "@/lib/prisma";
 
 declare module "next-auth" {
   interface Session {
@@ -31,16 +31,6 @@ declare module "next-auth/jwt" {
   }
 }
 
-async function syncDashboardUser(discordId: string, username: string, avatar?: string | null) {
-  const normalizedDiscordId = BigInt(discordId);
-  const role = env.adminDiscordIds.includes(discordId) ? UserRole.admin : UserRole.user;
-
-  return prisma.dashboardUser.upsert({
-    where: { discordId: normalizedDiscordId },
-    update: { username, avatar: avatar ?? null, role },
-    create: { discordId: normalizedDiscordId, username, avatar: avatar ?? null, role },
-  });
-}
 
 export const authOptions: NextAuthOptions = {
   session: {

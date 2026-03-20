@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { executeBotCommand } from "@/lib/bot-api";
+import { createPendingDashboardCommand, listDashboardCommands, updateDashboardCommandResult } from "@/lib/dashboard-metadata";
 import { env } from "@/lib/env";
-import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 
 const commandSchema = z.object({
@@ -19,17 +19,7 @@ export async function GET() {
     return response;
   }
 
-  const commands = await prisma.dashboardCommand.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 20,
-    include: {
-      executor: {
-        select: {
-          username: true,
-        },
-      },
-    },
-  });
+  const commands = await listDashboardCommands();
 
   return NextResponse.json({
     bridgeEnabled: env.botCommandBridgeEnabled,
@@ -64,39 +54,33 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const pendingCommand = await prisma.dashboardCommand.create({
-    data: {
-      executedById: session.user.id,
-      targetUserId: BigInt(parsed.data.userId),
-      command: parsed.data.command,
-      status: CommandStatus.pending,
-      result: JSON.stringify({ targetUserId: parsed.data.userId }),
-    },
+  const pendingCommand = await createPendingDashboardCommand({
+    executedById: session.user.id,
+    targetUserId: BigInt(parsed.data.userId),
+    command: parsed.data.command,
   });
 
   const botResponse = await executeBotCommand(parsed.data.command, parsed.data.userId);
   const status = botResponse.ok ? CommandStatus.success : CommandStatus.error;
 
-  const updatedCommand = await prisma.dashboardCommand.update({
-    where: { id: pendingCommand.id },
-    data: {
+  const updatedCommand = pendingCommand
+    ? await updateDashboardCommandResult({
+      id: pendingCommand.id,
       status,
-      result: JSON.stringify(botResponse.data),
-    },
-    include: {
-      executor: {
-        select: { username: true },
-      },
-    },
-  });
+      result: botResponse.data,
+    })
+    : null;
 
   return NextResponse.json(
     {
-      data: {
-        ...updatedCommand,
-        targetUserId: updatedCommand.targetUserId?.toString() ?? null,
-      },
+      data: updatedCommand
+        ? {
+          ...updatedCommand,
+          targetUserId: updatedCommand.targetUserId?.toString() ?? null,
+        }
+        : null,
       botResponse: botResponse.data,
+      warning: pendingCommand ? null : "dashboard_commands table is missing; command executed without persistence.",
     },
     { status: botResponse.ok ? 200 : 502 },
   );

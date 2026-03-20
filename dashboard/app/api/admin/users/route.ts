@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { findDashboardUserByDiscordId, getFallbackRole } from "@/lib/dashboard-metadata";
 import { getPaginationParams } from "@/lib/pagination";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
         prisma.drop.count({ where: { discordId } }),
         prisma.itemRequest.count({ where: { discordId } }),
         prisma.dkpTransaction.count({ where: { userId: discordId } }),
-        prisma.dashboardUser.findUnique({ where: { discordId } }),
+        findDashboardUserByDiscordId(discordId),
       ]);
 
       return {
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
         nicknameIngame: player.nicknameIngame,
         language: player.language,
         timezone: player.timezone,
-        role: dashboardUser?.role ?? "user",
+        role: dashboardUser?.role ?? getFallbackRole(discordId.toString()),
         dropsCount,
         requestsCount,
         dkpCount,
