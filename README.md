@@ -156,4 +156,4 @@ cp database.db backup-$(date +%F).db
 ## Web dashboard
 A full Next.js dashboard is available in `dashboard/` and now reads the real bot tables (`players`, `drops`, `item_requests`, `item_request_logs`, `audit_logs`, and `dkp_transactions`) instead of duplicating that data in parallel tables.
 
-**Importante:** o dashboard **não precisa** de API de comando para funcionar com leitura de dados. Ele lê direto do mesmo banco do bot. O bridge HTTP de comando é opcional e só serve se você quiser disparar ações remotas pelo painel. See `dashboard/README.md` for the exact setup.
+**Importante:** o dashboard **não precisa** de API de comando para funcionar com leitura de dados. Ele lê direto do mesmo banco do bot. O bridge HTTP de comando é opcional e só serve se você quiser disparar ações remotas pelo painel. Se o bot estiver em PostgreSQL, configure também `DATABASE_PROVIDER="postgresql"` no `dashboard/.env`; para SQLite, use `DATABASE_PROVIDER="sqlite"`. See `dashboard/README.md` for the exact setup.
